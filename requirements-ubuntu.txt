@@ -1,0 +1,16 @@
+# HEIC to jpeg 패키지
+pillow
+pyheif
+
+#OpenCV 설치
+opencv-python
+ultralytics
+numpy
+torch
+torchvision
+tensorflow==2.18
+tensorflow-probability
+onnx
+onnx_tf
+matplotlib
+albumentations

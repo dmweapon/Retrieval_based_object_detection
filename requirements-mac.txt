@@ -1,0 +1,26 @@
+# [HEIC to jpeg 패키지]
+# mac에서 실행시 다음의 패키지 설치 필요 
+# => brew install libheif libjpeg libtiff webp
+# pip install pyheif --use-pep517
+# pip install --upgrade --force-reinstall pillow
+pillow
+pyheif
+
+
+# [OpenCV 설치]
+opencv-python
+ultralytics
+numpy
+torch
+torchvision
+tensorflow-macos==2.10
+tensorflow-probability==0.18.0
+tensorflow-metal
+
+# onnx 설치시 아래 패키지 사전설치
+# brew install make cmake protobuf
+# pip install onnx --use-pep517
+onnx
+onnx_tf
+matplotlib
+albumentations

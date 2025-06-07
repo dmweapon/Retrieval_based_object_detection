@@ -1,0 +1,10 @@
+services:
+  detection-study1:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: detection-study1
+    volumes:
+      - ./:/app/
+    stdin_open: true
+    tty: true
