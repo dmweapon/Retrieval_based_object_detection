@@ -1,4 +1,5 @@
 # Refactored 15_segment_image.py with path list displays and filtered load option
+import shutil
 import gradio as gr
 import os
 from pathlib import Path
@@ -7,6 +8,10 @@ import numpy as np
 import torch
 import zipfile
 from segment_anything import sam_model_registry, SamPredictor
+
+# 서버 시작 시 이전 zip 삭제
+if Path("temp").exists():
+    shutil.rmtree("temp")
 
 print("어떤 모델을 사용할건지 목록에서 선택해주세요 (1, 2, 3 중 입력)")
 print("1) vit_b (메모리 사용량: 약 14~16GB)")
@@ -161,10 +166,17 @@ def download_output():
     output_dir = state.get("output_dir")
     if not output_dir or not output_dir.exists():
         return None
-    zip_path = output_dir.parent / f"{output_dir.name}.zip"
+
+    # ✅ 압축파일 저장 디렉토리: ./temp
+    zip_dir = Path("temp")
+    zip_dir.mkdir(parents=True, exist_ok=True)
+    zip_path = zip_dir / f"{output_dir.name}.zip"
+
     with zipfile.ZipFile(zip_path, 'w') as zipf:
         for file in output_dir.glob("*.png"):
             zipf.write(file, arcname=file.name)
+
+    print(f"✅ 압축 완료: {zip_path}")
     return str(zip_path)
 
 with gr.Blocks(title="Retriever-Based Object Segmentation") as demo:
