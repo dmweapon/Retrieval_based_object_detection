@@ -1,4 +1,4 @@
-# Refactored 15_segment_image.py with working Step 3 output refresh
+# Refactored 15_segment_image.py with path list displays and filtered load option
 import gradio as gr
 import os
 from pathlib import Path
@@ -53,22 +53,35 @@ def update_paths(input_root, output_root, img_type, class_name):
 def load_images():
     input_dir = state.get("input_dir")
     if not input_dir or not input_dir.exists():
-        return f"❌ 입력 디렉토리가 존재하지 않습니다: {input_dir}", []
+        return "❌ 입력 디렉토리가 존재하지 않습니다", [], ""
     image_paths = sorted([p for p in input_dir.glob("*.jpg") if p.is_file()])
     state["image_paths"] = image_paths
-    return f"✅ {len(image_paths)}개 이미지 로드됨", [(str(p), p.name) for p in image_paths]
+    return f"✅ {len(image_paths)}개 이미지 로드됨", [(str(p), p.name) for p in image_paths], "\n".join(map(str, image_paths))
+
+def load_unprocessed_images():
+    input_dir = state.get("input_dir")
+    output_dir = state.get("output_dir")
+    if not input_dir or not output_dir:
+        return "❌ 경로 미지정", [], ""
+    processed_stems = {p.stem.replace("_removebg", "") for p in output_dir.glob("*_removebg.png")}
+    image_paths = sorted([p for p in input_dir.glob("*.jpg") if p.stem not in processed_stems])
+    state["image_paths"] = image_paths
+    return f"✅ {len(image_paths)}개 미처리 이미지 로드됨", [(str(p), p.name) for p in image_paths], "\n".join(map(str, image_paths))
 
 def select_image(evt: gr.SelectData):
-    print("✅ gallery selected")
-    value = evt.value
-    image_path_str = value.get("image", {}).get("path") if isinstance(value, dict) else value
-    if not image_path_str:
-        return "❌ 이미지 경로 없음"
-    path = Path(image_path_str)
-    if not path.exists():
-        return f"❌ 경로 존재하지 않음: {image_path_str}"
-    state["selected_path"] = path
-    return str(path)
+    try:
+        print("✅ gallery selected")
+        value = evt.value
+        image_path_str = value.get("image", {}).get("path") if isinstance(value, dict) else value
+        if not image_path_str:
+            return "❌ 이미지 경로 없음"
+        path = Path(image_path_str)
+        if not path.exists():
+            return f"❌ 경로 존재하지 않음: {image_path_str}"
+        state["selected_path"] = path
+        return str(path)
+    except Exception as e:
+        return f"❌ 예외 발생: {e}"
 
 def pass_selected_image_to_step2():
     path = state.get("selected_path")
@@ -86,6 +99,7 @@ def segment_with_click(evt: gr.SelectData):
     print("📌 segment_with_click() called")
     image = state.get("selected_image")
     if image is None:
+        print("❌ selected_image is None")
         return []
     image_np = np.array(image)
     predictor.set_image(image_np)
@@ -98,39 +112,50 @@ def segment_with_click(evt: gr.SelectData):
         print("Segmentation 오류:", e)
         return []
     state["masks"] = masks
-    previews = [Image.fromarray(np.dstack((image_np, m.astype(np.uint8) * 255))) for m in masks]
+    previews = []
+    for i, m in enumerate(masks):
+        rgba = np.dstack((image_np, m.astype(np.uint8) * 255))
+        previews.append(Image.fromarray(rgba))
+    print(f"✅ {len(previews)}개 마스크 생성 완료")
     return previews
 
 def select_mask_by_index(evt: gr.SelectData):
     idx = evt.index
+    print("📌 select_mask_by_index() called with index:", idx)
     masks = state.get("masks")
     image = state.get("selected_image")
     if image is None or masks is None or idx >= len(masks):
+        print("❌ 유효하지 않은 마스크 선택")
         return None
     mask = masks[idx]
     state["selected_mask_array"] = mask
     rgba = np.dstack((np.array(image), mask.astype(np.uint8) * 255))
     return Image.fromarray(rgba)
 
-def apply_selected_mask():
+def apply_selected_mask(_):
     print("📌 apply_selected_mask() 호출됨")
     selected_image = state.get("selected_image")
     selected_mask = state.get("selected_mask_array")
     if selected_image is None or selected_mask is None:
+        print("❌ 이미지 또는 마스크 없음")
         return "❌ 이미지 또는 마스크가 없습니다."
     out_dir = state.get("output_dir")
     out_dir.mkdir(parents=True, exist_ok=True)
     stem = state["selected_path"].stem
     save_path = out_dir / f"{stem}_removebg.png"
-    rgba = np.dstack([np.array(selected_image), selected_mask.astype(np.uint8) * 255])
+    rgb = np.array(selected_image)
+    alpha = selected_mask.astype(np.uint8) * 255
+    rgba = np.dstack([rgb, alpha])
+    print("✅ 최종 저장 이미지 shape:", rgba.shape)
     Image.fromarray(rgba).save(save_path)
     return f"✅ 저장 완료: {save_path}"
 
 def load_output_images():
     output_dir = state.get("output_dir")
     if not output_dir or not output_dir.exists():
-        return []
-    return [(str(p), p.name) for p in sorted(output_dir.glob("*.png")) if p.is_file()]
+        return [], ""
+    png_paths = sorted([p for p in output_dir.glob("*.png") if p.is_file()])
+    return [(str(p), p.name) for p in png_paths], "\n".join(map(str, png_paths))
 
 def download_output():
     output_dir = state.get("output_dir")
@@ -155,11 +180,15 @@ with gr.Blocks(title="Retriever-Based Object Segmentation") as demo:
     apply_dir_btn.click(fn=update_paths, inputs=[input_root, output_root, img_type, class_name], outputs=[input_dir_display, output_dir_display])
 
     gr.Markdown("### Step 1: 이미지 로드 및 선택")
-    load_btn = gr.Button("이미지 로드")
+    with gr.Row():
+        load_btn = gr.Button("이미지 로드")
+        load_filtered_btn = gr.Button("미처리 이미지만 로드")
+    load_status = gr.Textbox(label="로드 상태")
+    image_path_list = gr.Textbox(label="이미지 목록 (path)", lines=5)
     gallery = gr.Gallery(label="이미지 목록", columns=4, height=400, allow_preview=True)
     selected_path_display = gr.Textbox(label="선택된 이미지 경로 (Step1)", interactive=False)
-    load_status = gr.Textbox(label="로드 상태")
-    load_btn.click(fn=load_images, outputs=[load_status, gallery])
+    load_btn.click(fn=load_images, outputs=[load_status, gallery, image_path_list])
+    load_filtered_btn.click(fn=load_unprocessed_images, outputs=[load_status, gallery, image_path_list])
     gallery.select(fn=select_image, outputs=selected_path_display)
 
     next_step_btn = gr.Button("다음 단계로 진행")
@@ -179,11 +208,12 @@ with gr.Blocks(title="Retriever-Based Object Segmentation") as demo:
 
     gr.Markdown("### Step 3: 출력 확인 및 다운로드")
     output_btn = gr.Button("출력 이미지 로드")
+    output_path_list = gr.Textbox(label="출력 이미지 목록 (path)", lines=5)
     output_gallery = gr.Gallery(label="출력 이미지 목록", columns=4, height=300, allow_preview=True)
     selected_output_image_display = gr.Image(label="선택된 출력 이미지")
     download_output_btn = gr.Button("전체 다운로드")
     download_file = gr.File(label="압축파일")
-    output_btn.click(fn=load_output_images, outputs=[output_gallery])
+    output_btn.click(fn=load_output_images, outputs=[output_gallery, output_path_list])
     output_gallery.select(fn=select_image, outputs=selected_output_image_display)
     download_output_btn.click(fn=download_output, outputs=download_file)
 
