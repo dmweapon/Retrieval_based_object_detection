@@ -1,4 +1,4 @@
-# Refactored code with corrected mask selection handling (Gradio 5.x)
+# Refactored 15_segment_image.py with working Step 3 output refresh
 import gradio as gr
 import os
 from pathlib import Path
@@ -8,7 +8,6 @@ import torch
 import zipfile
 from segment_anything import sam_model_registry, SamPredictor
 
-# ------------------- 모델 선택 프롬프트 -------------------
 print("어떤 모델을 사용할건지 목록에서 선택해주세요 (1, 2, 3 중 입력)")
 print("1) vit_b (메모리 사용량: 약 14~16GB)")
 print("2) vit_l (메모리 사용량: 약 20~22GB)")
@@ -34,7 +33,6 @@ sam = sam_model_registry[MODEL_TYPE](checkpoint=str(CHECKPOINT_PATH))
 sam.to(DEVICE)
 predictor = SamPredictor(sam)
 
-# ------------------- 상태 -------------------
 state = {
     "input_dir": None,
     "output_dir": None,
@@ -42,10 +40,9 @@ state = {
     "selected_path": None,
     "selected_image": None,
     "masks": [],
-    "selected_mask": None,
+    "selected_mask_array": None,
 }
 
-# ------------------- 함수 -------------------
 def update_paths(input_root, output_root, img_type, class_name):
     input_dir = Path(input_root) / f"{img_type}_images" / class_name
     output_dir = Path(output_root) / f"{img_type}_images" / class_name
@@ -59,23 +56,19 @@ def load_images():
         return f"❌ 입력 디렉토리가 존재하지 않습니다: {input_dir}", []
     image_paths = sorted([p for p in input_dir.glob("*.jpg") if p.is_file()])
     state["image_paths"] = image_paths
-    image_list = [(str(p), p.name) for p in image_paths]
-    return f"✅ {len(image_paths)}개 이미지 로드됨", image_list
+    return f"✅ {len(image_paths)}개 이미지 로드됨", [(str(p), p.name) for p in image_paths]
 
 def select_image(evt: gr.SelectData):
-    try:
-        print("✅ gallery selected")
-        value = evt.value
-        image_path_str = value.get("image", {}).get("path") if isinstance(value, dict) else value
-        if not image_path_str:
-            return "❌ 이미지 경로 없음"
-        path = Path(image_path_str)
-        if not path.exists():
-            return f"❌ 경로 존재하지 않음: {image_path_str}"
-        state["selected_path"] = path
-        return str(path)
-    except Exception as e:
-        return f"❌ 예외 발생: {e}"
+    print("✅ gallery selected")
+    value = evt.value
+    image_path_str = value.get("image", {}).get("path") if isinstance(value, dict) else value
+    if not image_path_str:
+        return "❌ 이미지 경로 없음"
+    path = Path(image_path_str)
+    if not path.exists():
+        return f"❌ 경로 존재하지 않음: {image_path_str}"
+    state["selected_path"] = path
+    return str(path)
 
 def pass_selected_image_to_step2():
     path = state.get("selected_path")
@@ -91,7 +84,6 @@ def pass_selected_image_to_step2():
 
 def segment_with_click(evt: gr.SelectData):
     print("📌 segment_with_click() called")
-    print("🖼 selected_image exists:", state.get("selected_image") is not None)
     image = state.get("selected_image")
     if image is None:
         return []
@@ -106,62 +98,31 @@ def segment_with_click(evt: gr.SelectData):
         print("Segmentation 오류:", e)
         return []
     state["masks"] = masks
-    previews = []
-    for i, m in enumerate(masks):
-        rgba = np.dstack((image_np, m.astype(np.uint8) * 255))
-        previews.append(Image.fromarray(rgba))
-    print(f"✅ {len(previews)}개 마스크 생성 완료")
+    previews = [Image.fromarray(np.dstack((image_np, m.astype(np.uint8) * 255))) for m in masks]
     return previews
 
-
 def select_mask_by_index(evt: gr.SelectData):
     idx = evt.index
-    print("📌 select_mask_by_index() called with index:", idx)
-    masks = state.get("masks")
-    if masks is None or idx >= len(masks):
-        print("❌ 유효하지 않은 마스크 인덱스")
-        return None
-    selected_mask = masks[idx]
-    image = state.get("selected_image")
-    if image is None:
-        print("❌ 선택된 이미지 없음")
-        return None
-    rgba = np.dstack((np.array(image), selected_mask.astype(np.uint8) * 255))
-    img = Image.fromarray(rgba)
-    state["selected_mask"] = img
-    print("✅ 마스크 선택 완료 - RGBA 형식")
-    return img
-
-def select_mask_by_index(evt: gr.SelectData):
-    idx = evt.index
-    print("📌 select_mask_by_index() called with index:", idx)
     masks = state.get("masks")
     image = state.get("selected_image")
     if image is None or masks is None or idx >= len(masks):
-        print("❌ 유효하지 않은 마스크 선택")
         return None
     mask = masks[idx]
-    state["selected_mask_array"] = mask  # ⭐ 원시 마스크 저장
+    state["selected_mask_array"] = mask
     rgba = np.dstack((np.array(image), mask.astype(np.uint8) * 255))
-    pil_img = Image.fromarray(rgba)
-    return pil_img  # UI 표시용
+    return Image.fromarray(rgba)
 
-def apply_selected_mask(_):  # ⛔ mask_img는 무시
+def apply_selected_mask():
     print("📌 apply_selected_mask() 호출됨")
     selected_image = state.get("selected_image")
     selected_mask = state.get("selected_mask_array")
     if selected_image is None or selected_mask is None:
-        print("❌ 이미지 또는 마스크 없음")
         return "❌ 이미지 또는 마스크가 없습니다."
     out_dir = state.get("output_dir")
     out_dir.mkdir(parents=True, exist_ok=True)
     stem = state["selected_path"].stem
     save_path = out_dir / f"{stem}_removebg.png"
-
-    rgb = np.array(selected_image)
-    alpha = selected_mask.astype(np.uint8) * 255
-    rgba = np.dstack([rgb, alpha])
-    print("✅ 최종 저장 이미지 shape:", rgba.shape)
+    rgba = np.dstack([np.array(selected_image), selected_mask.astype(np.uint8) * 255])
     Image.fromarray(rgba).save(save_path)
     return f"✅ 저장 완료: {save_path}"
 
@@ -181,7 +142,6 @@ def download_output():
             zipf.write(file, arcname=file.name)
     return str(zip_path)
 
-# ------------------- Gradio UI -------------------
 with gr.Blocks(title="Retriever-Based Object Segmentation") as demo:
     gr.Markdown("### 디렉토리 설정")
     with gr.Row():
@@ -218,12 +178,12 @@ with gr.Blocks(title="Retriever-Based Object Segmentation") as demo:
     confirm_btn.click(fn=apply_selected_mask, inputs=[], outputs=save_status)
 
     gr.Markdown("### Step 3: 출력 확인 및 다운로드")
-    output_gallery = gr.Gallery(label="출력 이미지 목록", columns=4, height=300)
-    selected_output_image_display = gr.Image(label="선택된 출력 이미지")
     output_btn = gr.Button("출력 이미지 로드")
+    output_gallery = gr.Gallery(label="출력 이미지 목록", columns=4, height=300, allow_preview=True)
+    selected_output_image_display = gr.Image(label="선택된 출력 이미지")
     download_output_btn = gr.Button("전체 다운로드")
     download_file = gr.File(label="압축파일")
-    output_btn.click(fn=load_output_images, outputs=output_gallery)
+    output_btn.click(fn=load_output_images, outputs=[output_gallery])
     output_gallery.select(fn=select_image, outputs=selected_output_image_display)
     download_output_btn.click(fn=download_output, outputs=download_file)
 
