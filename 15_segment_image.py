@@ -14,9 +14,9 @@ if Path("temp").exists():
     shutil.rmtree("temp")
 
 print("어떤 모델을 사용할건지 목록에서 선택해주세요 (1, 2, 3 중 입력)")
-print("1) vit_b (메모리 사용량: 약 14~16GB)")
-print("2) vit_l (메모리 사용량: 약 20~22GB)")
-print("3) vit_h (메모리 사용량: 약 28~32GB)")
+print("1) vit_b | [VRAM 사용량] 2~3 건 처리시: 2~3GB, 최대 처리시: 14~16GB")
+print("2) vit_l | [VRAM 사용량] 2~3 건 처리시: 4~6GB, 최대 처리시: 20~22GB")
+print("3) vit_h | [VRAM 사용량] 2~3 건 처리시: 6~8GB, 최대 처리시: 28~32GB")
 model_choice = input("선택: ")
 model_map = {"1": "vit_b", "2": "vit_l", "3": "vit_h"}
 MODEL_TYPE = model_map.get(model_choice, "vit_b")
