@@ -68,7 +68,7 @@ def load_unprocessed_images():
     output_dir = state.get("output_dir")
     if not input_dir or not output_dir:
         return "❌ 경로 미지정", [], ""
-    processed_stems = {p.stem.replace("_removebg", "") for p in output_dir.glob("*_removebg.png")}
+    processed_stems = {p.stem.replace("_rmbg", "") for p in output_dir.glob("*_rmbg.png")}
     image_paths = sorted([p for p in input_dir.glob("*.jpg") if p.stem not in processed_stems])
     state["image_paths"] = image_paths
     return f"✅ {len(image_paths)}개 미처리 이미지 로드됨", [(str(p), p.name) for p in image_paths], "\n".join(map(str, image_paths))
@@ -147,7 +147,7 @@ def apply_selected_mask(_):
     out_dir = state.get("output_dir")
     out_dir.mkdir(parents=True, exist_ok=True)
     stem = state["selected_path"].stem
-    save_path = out_dir / f"{stem}_removebg.png"
+    save_path = out_dir / f"{stem}_rmbg.png"
     rgb = np.array(selected_image)
     alpha = selected_mask.astype(np.uint8) * 255
     rgba = np.dstack([rgb, alpha])
