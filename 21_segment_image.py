@@ -73,20 +73,36 @@ def load_unprocessed_images():
     state["image_paths"] = image_paths
     return f"✅ {len(image_paths)}개 미처리 이미지 로드됨", [(str(p), p.name) for p in image_paths], "\n".join(map(str, image_paths))
 
+# def select_image(evt: gr.SelectData):
+#     try:
+#         print("✅ gallery selected")
+#         value = evt.value
+#         image_path_str = value.get("image", {}).get("path") if isinstance(value, dict) else value
+#         if not image_path_str:
+#             return "❌ 이미지 경로 없음"
+#         path = Path(image_path_str)
+#         if not path.exists():
+#             return f"❌ 경로 존재하지 않음: {image_path_str}"
+#         state["selected_path"] = path
+#         return str(path)
+#     except Exception as e:
+#         return f"❌ 예외 발생: {e}"
 def select_image(evt: gr.SelectData):
+    """
+    갤러리에서 이미지 선택 시 경로를 업데이트.
+    단일 이미지인 경우 index가 None일 수 있어, 이때 기본 0으로 설정.
+    """
     try:
-        print("✅ gallery selected")
-        value = evt.value
-        image_path_str = value.get("image", {}).get("path") if isinstance(value, dict) else value
-        if not image_path_str:
-            return "❌ 이미지 경로 없음"
-        path = Path(image_path_str)
-        if not path.exists():
-            return f"❌ 경로 존재하지 않음: {image_path_str}"
+        idx = 0
+        if evt.index is not None:
+            # evt.index가 튜플일 경우 첫 번째 사용
+            idx = evt.index[0] if isinstance(evt.index, (list, tuple)) else evt.index
+        path = state["image_paths"][idx]
         state["selected_path"] = path
         return str(path)
     except Exception as e:
-        return f"❌ 예외 발생: {e}"
+        print(f"❌ select_image 오류: {e}")
+        return ""
 
 def pass_selected_image_to_step2():
     path = state.get("selected_path")
