@@ -63,6 +63,15 @@ def add_salt_and_pepper(img, amount):
             np_img[y, x] = 255
     return Image.fromarray(np_img)
 
+def postfix_num(val):
+    """정수(예:+20, -5)를 문자열로 변환할 때, +는 p, -는 n, 0은 그대로 반환"""
+    sval = str(val)
+    if sval.startswith('+'):
+        return 'p' + sval[1:]
+    elif sval.startswith('-'):
+        return 'n' + sval[1:]
+    return sval
+    
 def augment_and_save(img_path, save_dir):
     try:
         img = Image.open(img_path).convert('RGBA')
@@ -75,18 +84,23 @@ def augment_and_save(img_path, save_dir):
 
     # 밝기 조정
     for rate in BRIGHTNESS_RATES:
+        delta = int((rate - 1) * 100)
+        postfix = postfix_num(f"{delta:+d}")  # +, -, 0 중 하나
         enhancer = ImageEnhance.Brightness(img)
         bright_img = enhancer.enhance(rate)
-        bright_img.save(save_dir / f"{basename}_brightness_{int((rate-1)*100):+d}{ext}")
+        bright_img.save(save_dir / f"{basename}_brightness_{postfix}{ext}")
 
     # 회전
     for angle in ROTATION_ANGLES:
+        postfix = postfix_num(angle)
         rot_img = img.rotate(angle, expand=True, fillcolor=(0,0,0,0))
-        rot_img.save(save_dir / f"{basename}_rot{angle}{ext}")
+        rot_img.save(save_dir / f"{basename}_rot{postfix}{ext}")
 
     # 노이즈 (각 타입별, 강도별)
     for noise_type in NOISE_TYPES:
         for level in NOISE_LEVELS:
+            percent = int(level * 100)
+            postfix = postfix_num(percent)
             if noise_type == 'gaussian':
                 noisy_img = add_gaussian_noise(img, level)
             elif noise_type == 'blur':
@@ -95,7 +109,9 @@ def augment_and_save(img_path, save_dir):
                 noisy_img = add_salt_and_pepper(img, level)
             else:
                 continue
-            noisy_img.save(save_dir / f"{basename}_{noise_type}noise_{int(level*100)}{ext}")
+            noisy_img.save(save_dir / f"{basename}_{noise_type}noise_{postfix}{ext}")
+
+
 
 # --- 리팩토링된 증강 프로세스 ---
 def process_all():
