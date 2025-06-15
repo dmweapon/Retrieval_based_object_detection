@@ -1,0 +1,14 @@
+1. Qdrant DB 설치 및 실행
+docker run -d \
+  --name qdrant \
+  -p 6333:6333 \
+  -v $(pwd)/db/qdrant_data:/qdrant/storage \
+  qdrant/qdrant
+
+2. qdrant 사용을 위한 python 패키지 설치
+pip install qdrant-client
+
+3. qdrant에 case 단위로 collection 생성
+ - 차원 : 512 (CLIP ViT-B/32 임베딩 모델 출력값)
+ - distance : cosine
+
