@@ -4,143 +4,177 @@
 
 import os
 import sys
-import uuid
+import time
 from pathlib import Path
-from PIL import Image
-from tqdm import tqdm
-
-import torch
 import clip
+import torch
+from PIL import Image
 from qdrant_client import QdrantClient
-from qdrant_client.models import PointStruct
+from qdrant_client.http.models import Distance, VectorParams, PointStruct
 
-# -------------------------- 모델 로딩 함수 --------------------------
-def load_clip_model():
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    print("📦 CLIP ViT-B/32 모델 로딩 중...")
-    model, preprocess = clip.load("ViT-B/32", device=device)
-    return model, preprocess, device
-
-# -------------------------- 이미지 임베딩 함수 --------------------------
-def embed_image_with_clip(image_path, model, preprocess, device):
-    try:
-        image = Image.open(image_path).convert("RGB")
-        image_input = preprocess(image).unsqueeze(0).to(device)
-        with torch.no_grad():
-            embedding = model.encode_image(image_input).squeeze().cpu().numpy().tolist()
-        return embedding
-    except Exception as e:
-        print(f"❌ 이미지 임베딩 실패: {image_path} / {e}")
-        return None
-
-# -------------------------- 메인 처리 --------------------------
-def main():
-    # 1. dataset 경로 입력
+# Qdrant 연결 설정 함수
+def connect_qdrant():
+    print("[Qdrant] 호스트와 포트 정보를 입력해주세요")
+    host = input("Qdrant host [기본값: localhost]: ").strip() or "localhost"
     while True:
-        root_dir = input("dataset 경로를 입력해주세요: ").strip()
-        if root_dir and Path(root_dir).exists():
-            break
-        print("❌ 유효하지 않은 경로입니다. 다시 입력해주세요.")
-
-    # 2. 이미지 타입 입력
-    while True:
-        img_type = input("사용할 이미지 타입 입력 (original / natural) [기본값: original]: ").strip().lower()
-        if img_type == "":
-            img_type = "original"
-        if img_type in ["original", "natural"]:
-            break
-        print("❌ 잘못된 입력입니다. 'original' 또는 'natural' 중에서 선택해주세요.")
-    base_dir = Path(root_dir) / f"{img_type}_images"
-    if not base_dir.exists():
-        print(f"❌ {base_dir} 디렉토리가 존재하지 않습니다.")
-        sys.exit(1)
-
-    # 3. 클래스 디렉토리 선택
-    working_dir = {}
-    all_classes = [d.name for d in base_dir.iterdir() if d.is_dir()]
-    while True:
-        class_all = input("모든 클래스를 임베딩할까요? (y/n): ").strip().lower()
-        if class_all == "y":
-            for cls in all_classes:
-                working_dir[cls] = base_dir / cls
-            break
-        elif class_all == "n":
-            while True:
-                class_name = input("클래스 이름을 입력해주세요: ").strip()
-                class_path = base_dir / class_name
-                if class_path.exists():
-                    working_dir[class_name] = class_path
-                    break
-                else:
-                    print("❌ 해당 클래스 디렉토리가 존재하지 않습니다. 다시 입력해주세요.")
-            break
-        else:
-            print("❌ y 또는 n만 입력해주세요.")
-
-    # 4. Qdrant host 및 port 입력
-    print("[Q1] Qdrant Host 및 Port 입력")
-    host_input = input("호스트명을 입력해주세요 [기본값: localhost]: ").strip()
-    host = host_input if host_input else "localhost"
-
-    while True:
-        port_input = input("포트 번호를 입력해주세요 (예: 6333) [기본값: 6333]: ").strip()
+        port_input = input("Qdrant port [기본값: 6333]: ").strip()
         try:
             port = int(port_input) if port_input else 6333
             client = QdrantClient(host=host, port=port)
-            collections = client.get_collections().collections
+            client.get_collections()
             print("✅ Vector Database(Qdrant)에 정상적으로 연결되었습니다.")
-            break
+            return client
         except Exception as e:
-            print(f"❌ Qdrant 연결 실패: {e}")
-            print("다시 호스트명과 포트를 입력해주세요.")
+            print(f"❌ 연결 실패: {e}\n다시 시도해주세요.\n")
 
-    # 5. collection 선택
+# 사용자 입력 유틸
+def select_with_number(prompt, options, allow_back=False):
     while True:
-        if not collections:
-            print("❌ 생성된 collection이 없습니다. 먼저 collection을 만들어주세요.")
-            sys.exit(1)
-        print("✅ 현재 collection 목록:")
-        for idx, col in enumerate(collections):
-            print(f"{idx + 1}) {col.name}")
-        col_idx = input("사용할 collection 번호 입력: ").strip()
+        print(prompt)
+        for i, opt in enumerate(options, 1):
+            print(f"{i}) {opt}")
+        if allow_back:
+            print("b) 처음 질문으로")
+        choice = input("번호를 입력해주세요: ").strip().lower()
+        if allow_back and choice == 'b':
+            return 'back'
+        if choice.isdigit() and 1 <= int(choice) <= len(options):
+            return options[int(choice) - 1]
+        print("❌ 올바르지 않은 입력입니다. 다시 입력해주세요.\n")
+
+# 모델 로드 함수
+def load_clip_model():
+    model_path = Path("model") / "ViT-B-32.pt"
+    model_path.parent.mkdir(exist_ok=True)
+    if model_path.exists():
+        print("✅ 이미 저장되어있는 CLIP 모델을 사용합니다.")
+    else:
+        print("📦 해당 모델이 저장되어있지 않아 새로 다운로드합니다.")
+    model, preprocess = clip.load("ViT-B/32", device="cuda" if torch.cuda.is_available() else "cpu")
+    return model, preprocess
+
+# 이미지 임베딩 함수
+def embed_images_in_dir(model, preprocess, class_dir, class_name):
+    image_files = list(Path(class_dir).glob("*.png"))
+    embeddings = []
+    for i, img_path in enumerate(image_files, 1):
         try:
-            collection_name = collections[int(col_idx) - 1].name
-            break
-        except:
-            print("❌ 올바르지 않은 선택입니다. 번호를 다시 입력해주세요.")
+            image = preprocess(Image.open(img_path)).unsqueeze(0)
+            with torch.no_grad():
+                embedding = model.encode_image(image)
+                embedding /= embedding.norm(dim=-1, keepdim=True)
+                embeddings.append((img_path.name, embedding.squeeze().tolist()))
+            print(f"[{i}/{len(image_files)}] ✅ 임베딩 완료: {img_path.name}")
+        except Exception as e:
+            print(f"[{i}/{len(image_files)}] ❌ 오류: {img_path.name} ({e})")
+    return embeddings
 
-    # 6. CLIP 모델 불러오기
-    model_dir = Path("model")
-    model_dir.mkdir(exist_ok=True)
-    model, preprocess, device = load_clip_model()
-
-    # 7. 이미지 임베딩 및 Qdrant 저장
-    result_summary = {}
-    for cls_name, cls_path in working_dir.items():
-        image_files = [f for f in cls_path.iterdir() if f.suffix.lower() in [".png", ".jpg", ".jpeg"]]
-        count = 0
-        print(f"\n📦 클래스 '{cls_name}' 처리 중... ({len(image_files)}장)")
-        for img_path in tqdm(image_files, desc=f"  → 임베딩 중"):
-            vector = embed_image_with_clip(img_path, model, preprocess, device)
-            if vector is None:
-                continue
-            payload = {
-                "class_name": cls_name,
+# Qdrant 저장 함수
+def save_embeddings_to_qdrant(client, collection_name, class_name, embeddings):
+    points = [
+        PointStruct(
+            id=i,
+            vector=vec,
+            payload={
+                "class_name": class_name,
                 "is_delegate": False,
                 "delegate_type": "average"
-            }
-            point = PointStruct(id=str(uuid.uuid4()), vector=vector, payload=payload)
-            client.upsert(collection_name=collection_name, points=[point])
-            count += 1
-        result_summary[cls_name] = count
+            },
+        ) for i, (name, vec) in enumerate(embeddings)
+    ]
+    client.upsert(collection_name=collection_name, points=points)
+    print(f"✅ {len(points)}개의 벡터를 Qdrant에 저장했습니다.")
 
-    # 8. 결과 요약 출력
-    print("\n✅ 모든 작업이 완료되었습니다. 클래스별 임베딩 수:")
-    for cls, cnt in result_summary.items():
-        print(f"  - {cls}: {cnt}개")
+# 메인 루프
+def main():
+    client = connect_qdrant()
 
-    print("\n🛑 서버 종료")
-    sys.exit(0)
+    while True:
+        # [요청1] dataset 선택
+        dataset_dir = select_with_number(
+            "[1단계] 사용할 dataset을 선택해주세요:",
+            ["dataset_cropped", "dataset_segmented", "dataset_augmented"]
+        )
+        if dataset_dir == 'back':
+            continue
+        root_dir = Path(dataset_dir)
+
+        # [요청2] 이미지 타입 선택
+        while True:
+            img_type = select_with_number(
+                "[2단계] 사용할 이미지 타입을 선택해주세요:",
+                ["original", "natural"],
+                allow_back=True
+            )
+            if img_type == 'back':
+                break
+            base_dir = root_dir / f"{img_type}_images"
+            class_dirs = [d for d in base_dir.iterdir() if d.is_dir()]
+            if not class_dirs:
+                print("❌ 준비된 클래스가 없습니다. (하위 디렉토리가 없습니다)\n")
+                continue
+            else:
+                break
+        if img_type == 'back':
+            continue
+
+        # [Q3] 전체 클래스 여부
+        all_classes = input("[3단계] 모든 클래스를 임베딩할까요? (y/n): ").strip().lower()
+        working_dirs = {}
+
+        if all_classes == 'y':
+            for d in class_dirs:
+                working_dirs[d.name] = d
+        else:
+            selected_class = select_with_number(
+                "[3단계] 클래스 하나를 선택해주세요:",
+                [d.name for d in class_dirs],
+                allow_back=True
+            )
+            if selected_class == 'back':
+                continue
+            working_dirs[selected_class] = base_dir / selected_class
+
+        # [Q4] collection 선택
+        collections = client.get_collections().collections
+        collection_names = [c.name for c in collections]
+        collection_name = select_with_number(
+            "[4단계] 저장할 Collection을 선택해주세요:",
+            collection_names,
+            allow_back=True
+        )
+        if collection_name == 'back':
+            continue
+
+        # [Q5] 모델 선택
+        print("[5단계] 사용할 임베딩 모델을 선택해주세요:")
+        print("1) CLIP ViT-B/32")
+        model_choice = input("모델 번호 입력 [기본값: 1]: ").strip()
+        model_choice = model_choice if model_choice else "1"
+        if model_choice != "1":
+            print("❌ 현재는 CLIP ViT-B/32만 지원됩니다.")
+            continue
+
+        model, preprocess = load_clip_model()
+
+        # [Q6] 임베딩 및 저장
+        total_counts = {}
+        for class_name, class_path in working_dirs.items():
+            print(f"\n🚀 {class_name} 클래스의 이미지 임베딩을 시작합니다...")
+            embeddings = embed_images_in_dir(model, preprocess, class_path, class_name)
+            save_embeddings_to_qdrant(client, collection_name, class_name, embeddings)
+            total_counts[class_name] = len(embeddings)
+
+        # [Q7] 요약 출력
+        print("\n📊 클래스별 임베딩 수:")
+        for k, v in total_counts.items():
+            print(f" - {k}: {v}개")
+
+        # [Q8] 추가 작업 여부
+        again = input("\n다른 클래스도 이어서 작업할까요? (y/n): ").strip().lower()
+        if again != 'y':
+            print("👋 작업을 종료합니다.")
+            break
 
 if __name__ == "__main__":
     main()
