@@ -52,121 +52,125 @@ def main():
             print(f"\u274C 연결 실패: {e}")
             print("다시 입력해주세요.")
 
-    # 1. dataset 경로 선택
-    dataset_options = {
-        "1": "dataset_cropped",
-        "2": "dataset_segmented",
-        "3": "dataset_augmented"
-    }
-    while True:
-        print("[Q1] 사용할 Dataset 디렉토리 선택")
-        for k, v in dataset_options.items():
-            print(f"{k}) {v}")
-        selected = input("선택지를 입력하세요: ").strip()
-        if selected in dataset_options:
-            root_dir = dataset_options[selected]
-            break
-        print("\u274C 잘못된 입력입니다. 다시 입력해주세요.")
-
-    # 2. 이미지 타입 선택
-    img_type_options = {"1": "original", "2": "natural"}
-    while True:
-        print("[Q2] 이미지 타입 선택 (original / natural)")
-        for k, v in img_type_options.items():
-            print(f"{k}) {v}")
-        img_type_input = input("선택지를 입력하세요: ").strip()
-        if img_type_input in img_type_options:
-            img_type = img_type_options[img_type_input]
-            break
-        print("\u274C 잘못된 입력입니다. 다시 입력해주세요.")
-
-    # 3. 클래스 디렉토리 선택
-    while True:
-        base_dir = Path(root_dir) / f"{img_type}_images"
-        if not base_dir.exists():
-            print(f"\u274C {base_dir} 디렉토리가 존재하지 않습니다.")
-            sys.exit(1)
-
-        class_dirs = [d for d in base_dir.iterdir() if d.is_dir()]
-        if not class_dirs:
-            print("\u274C 준비된 클래스가 없습니다. (하위 디렉토리가 없습니다)")
-            continue
-
-        working_dir = {}
-        all_classes = [d.name for d in class_dirs]
-        while True:
-            class_all = input("모든 클래스를 임베딩할까요? (y/n): ").strip().lower()
-            if class_all == "y":
-                for cls in all_classes:
-                    working_dir[cls] = base_dir / cls
-                break
-            elif class_all == "n":
-                print("[Q3] 클래스 목록")
-                for idx, name in enumerate(all_classes):
-                    print(f"{idx+1}) {name}")
-                while True:
-                    selected = input("클래스 번호를 입력해주세요: ").strip()
-                    try:
-                        idx = int(selected) - 1
-                        class_name = all_classes[idx]
-                        class_path = base_dir / class_name
-                        working_dir[class_name] = class_path
-                        break
-                    except:
-                        print("\u274C 잘못된 입력입니다. 다시 입력해주세요.")
-                break
-            else:
-                print("\u274C y 또는 n만 입력해주세요.")
-        break
-
-    # 4. collection 선택
-    while True:
-        if not collections:
-            print("\u274C 생성된 collection이 없습니다. 먼저 collection을 만들어주세요.")
-            sys.exit(1)
-        print("\u2705 현재 collection 목록:")
-        for idx, col in enumerate(collections):
-            print(f"{idx + 1}) {col.name}")
-        col_idx = input("사용할 collection 번호 입력: ").strip()
-        try:
-            collection_name = collections[int(col_idx) - 1].name
-            break
-        except:
-            print("\u274C 올바르지 않은 선택입니다. 번호를 다시 입력해주세요.")
-
-    # 5. CLIP 모델 불러오기
+    # 1. CLIP 모델 불러오기
     model_dir = Path("model")
     model_dir.mkdir(exist_ok=True)
     model, preprocess, device = load_clip_model()
 
-    # 6. 이미지 임베딩 및 Qdrant 저장
-    result_summary = {}
-    for cls_name, cls_path in working_dir.items():
-        image_files = [f for f in cls_path.iterdir() if f.suffix.lower() in [".png", ".jpg", ".jpeg"]]
-        count = 0
-        print(f"\n\U0001F4E6 클래스 '{cls_name}' 처리 중... ({len(image_files)}장)")
-        for img_path in tqdm(image_files, desc=f"  → 임베딩 중"):
-            vector = embed_image_with_clip(img_path, model, preprocess, device)
-            if vector is None:
+    while True:
+        # 2. dataset 경로 선택
+        dataset_options = {
+            "1": "dataset_cropped",
+            "2": "dataset_segmented",
+            "3": "dataset_augmented"
+        }
+        while True:
+            print("[Q1] 사용할 Dataset 디렉토리 선택")
+            for k, v in dataset_options.items():
+                print(f"{k}) {v}")
+            selected = input("선택지를 입력하세요: ").strip()
+            if selected in dataset_options:
+                root_dir = dataset_options[selected]
+                break
+            print("\u274C 잘못된 입력입니다. 다시 입력해주세요.")
+
+        # 3. 이미지 타입 선택
+        img_type_options = {"1": "original", "2": "natural"}
+        while True:
+            print("[Q2] 이미지 타입 선택 (original / natural)")
+            for k, v in img_type_options.items():
+                print(f"{k}) {v}")
+            img_type_input = input("선택지를 입력하세요: ").strip()
+            if img_type_input in img_type_options:
+                img_type = img_type_options[img_type_input]
+                break
+            print("\u274C 잘못된 입력입니다. 다시 입력해주세요.")
+
+        # 4. 클래스 디렉토리 선택
+        while True:
+            base_dir = Path(root_dir) / f"{img_type}_images"
+            if not base_dir.exists():
+                print(f"\u274C {base_dir} 디렉토리가 존재하지 않습니다.")
+                sys.exit(1)
+
+            class_dirs = [d for d in base_dir.iterdir() if d.is_dir()]
+            if not class_dirs:
+                print("\u274C 준비된 클래스가 없습니다. (하위 디렉토리가 없습니다)")
                 continue
-            payload = {
-                "class_name": cls_name,
-                "is_delegate": False,
-                "delegate_type": "average",
-                "image_path": str(img_path)
-            }
-            point = PointStruct(id=str(uuid.uuid4()), vector=vector, payload=payload)
-            client.upsert(collection_name=collection_name, points=[point])
-            count += 1
-        result_summary[cls_name] = count
 
-    # 7. 결과 요약 출력
-    print("\n\u2705 모든 작업이 완료되었습니다. 클래스별 임베딩 수:")
-    for cls, cnt in result_summary.items():
-        print(f"  - {cls}: {cnt}개")
+            working_dir = {}
+            all_classes = [d.name for d in class_dirs]
+            while True:
+                class_all = input("모든 클래스를 임베딩할까요? (y/n): ").strip().lower()
+                if class_all == "y":
+                    for cls in all_classes:
+                        working_dir[cls] = base_dir / cls
+                    break
+                elif class_all == "n":
+                    print("[Q3] 클래스 목록")
+                    for idx, name in enumerate(all_classes):
+                        print(f"{idx+1}) {name}")
+                    while True:
+                        selected = input("클래스 번호를 입력해주세요: ").strip()
+                        try:
+                            idx = int(selected) - 1
+                            class_name = all_classes[idx]
+                            class_path = base_dir / class_name
+                            working_dir[class_name] = class_path
+                            break
+                        except:
+                            print("\u274C 잘못된 입력입니다. 다시 입력해주세요.")
+                    break
+                else:
+                    print("\u274C y 또는 n만 입력해주세요.")
+            break
 
-    print("\n\U0001F6D1 서버 종료")
-    sys.exit(0)
+        # 5. collection 선택
+        while True:
+            if not collections:
+                print("\u274C 생성된 collection이 없습니다. 먼저 collection을 만들어주세요.")
+                sys.exit(1)
+            print("\u2705 현재 collection 목록:")
+            for idx, col in enumerate(collections):
+                print(f"{idx + 1}) {col.name}")
+            col_idx = input("사용할 collection 번호 입력: ").strip()
+            try:
+                collection_name = collections[int(col_idx) - 1].name
+                break
+            except:
+                print("\u274C 올바르지 않은 선택입니다. 번호를 다시 입력해주세요.")
+
+        # 6. 이미지 임베딩 및 Qdrant 저장
+        result_summary = {}
+        for cls_name, cls_path in working_dir.items():
+            image_files = [f for f in cls_path.iterdir() if f.suffix.lower() in [".png", ".jpg", ".jpeg"]]
+            count = 0
+            print(f"\n\U0001F4E6 클래스 '{cls_name}' 처리 중... ({len(image_files)}장)")
+            for img_path in tqdm(image_files, desc=f"  → 임베딩 중"):
+                vector = embed_image_with_clip(img_path, model, preprocess, device)
+                if vector is None:
+                    continue
+                payload = {
+                    "class_name": cls_name,
+                    "is_delegate": False,
+                    "delegate_type": "average",
+                    "image_path": str(img_path)
+                }
+                point = PointStruct(id=str(uuid.uuid4()), vector=vector, payload=payload)
+                client.upsert(collection_name=collection_name, points=[point])
+                count += 1
+            result_summary[cls_name] = count
+
+        # 7. 결과 요약 출력
+        print("\n\u2705 모든 작업이 완료되었습니다. 클래스별 임베딩 수:")
+        for cls, cnt in result_summary.items():
+            print(f"  - {cls}: {cnt}개")
+
+        # 8. 다음 작업 여부 확인
+        cont = input("\n➕ 다른 작업을 이어서 하시겠습니까? (y/n): ").strip().lower()
+        if cont != 'y':
+            print("\n\U0001F6D1 서버 종료")
+            sys.exit(0)
 
 if __name__ == "__main__":
     main()
