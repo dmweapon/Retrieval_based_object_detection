@@ -13,21 +13,23 @@ def print_menu():
 def input_valid_collection(client, prompt):
     while True:
         name = input(prompt).strip()
-        if name in client.get_collections().collections:
+        if name in [c.name for c in client.get_collections().collections]:
             return name
         else:
             print("❌ 존재하지 않는 collection입니다. 다시 입력해주세요.")
 
 def main():
-    print("[Q1] Qdrant port 입력")
+    print("[Q1] Qdrant host/port 입력")
+    host_input = input("호스트를 입력해주세요 (예: localhost, 127.0.0.1, 172.17.0.2 등) [기본값: localhost]: ").strip()
     port_input = input("포트 번호를 입력해주세요 (예: 6333) [기본값: 6333]: ").strip()
+    host = "localhost" if host_input == "" else host_input
     port = 6333 if port_input == "" else int(port_input)
 
     # Qdrant client 연결
     try:
-        client = QdrantClient(host="localhost", port=port)
+        client = QdrantClient(host=host, port=port)
         client.get_collections()  # 연결 테스트
-        print(f"✅ Qdrant 서버({port}번 포트) 연결 성공")
+        print(f"✅ Qdrant 서버({host}:{port}) 연결 성공")
     except Exception as e:
         print(f"❌ Qdrant 서버에 연결할 수 없습니다: {e}")
         sys.exit(1)
@@ -41,7 +43,9 @@ def main():
             if collections:
                 print("📦 현재 존재하는 collections:")
                 for col in collections:
-                    print(f"  - {col.name}")
+                    info = client.get_collection(col.name)
+                    count = info.points_count if hasattr(info, 'points_count') else 0
+                    print(f"  - {col.name} ({count})")
             else:
                 print("📦 현재 존재하는 collection이 없습니다.")
 
@@ -98,9 +102,18 @@ def main():
                 print(f"❌ 이름 변경 실패: {e}")
 
         elif choice == "4":
-            name = input("삭제하려는 collection 이름을 입력해주세요 (또는 'all' 입력 시 전체 삭제): ").strip()
             collections = [c.name for c in client.get_collections().collections]
+            if not collections:
+                print("생성된 collection이 없습니다.")
+                continue
 
+            print("삭제 가능한 collections:")
+            for idx, col in enumerate(collections, start=1):
+                info = client.get_collection(col)
+                count = info.points_count if hasattr(info, 'points_count') else 0
+                print(f"  {idx}) {col} ({count})")
+
+            name = input("삭제하려는 collection 번호를 입력해주세요 (또는 'all' 입력 시 전체 삭제): ").strip()
             if name.lower() == "all":
                 confirm = input("⚠️ 모든 collection을 삭제하시겠습니까? (y/n): ").strip().lower()
                 if confirm == "y":
@@ -111,13 +124,19 @@ def main():
                     print("❌ 삭제 취소")
                 continue
 
-            if name not in collections:
-                print("❌ 존재하지 않는 collection입니다.")
+            try:
+                idx = int(name)
+                if not (1 <= idx <= len(collections)):
+                    print("❌ 잘못된 번호입니다.")
+                    continue
+                target_col = collections[idx-1]
+            except ValueError:
+                print("❌ 번호를 입력해주세요.")
                 continue
 
             try:
-                client.delete_collection(name)
-                print(f"✅ '{name}' collection이 삭제되었습니다.")
+                client.delete_collection(target_col)
+                print(f"✅ '{target_col}' collection이 삭제되었습니다.")
             except Exception as e:
                 print(f"❌ 삭제 실패: {e}")
 

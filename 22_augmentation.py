@@ -71,7 +71,7 @@ def postfix_num(val):
     elif sval.startswith('-'):
         return 'n' + sval[1:]
     return sval
-    
+
 def augment_and_save(img_path, save_dir):
     try:
         img = Image.open(img_path).convert('RGBA')
@@ -105,7 +105,7 @@ def augment_and_save(img_path, save_dir):
                 noisy_img = add_gaussian_noise(img, level)
             elif noise_type == 'blur':
                 noisy_img = add_blur(img, int(level * 100))
-            elif noise_type == 's&p':
+            elif noise_type == 'snp':
                 noisy_img = add_salt_and_pepper(img, level)
             else:
                 continue
