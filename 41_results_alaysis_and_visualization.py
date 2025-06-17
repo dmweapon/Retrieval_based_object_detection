@@ -9,7 +9,6 @@ import glob
 import sys
 
 # -------------------- CSV 목록 선택 --------------------
-
 def select_result_csv():
     result_files = sorted(Path("results").rglob("result_*.csv"))
     if not result_files:
@@ -31,19 +30,26 @@ def select_result_csv():
             print("⚠️ 숫자만 입력하세요.")
 
 # -------------------- 데이터 로드 --------------------
-
 result_data_path = select_result_csv()
 print(f"\n📂 선택된 결과 CSV: {result_data_path}")
 results_df = pd.read_csv(result_data_path)
 print("✅ 데이터 로드 완료. 총 샘플 수:", len(results_df))
 
+# 대표 벡터 유형별 유사도 평균 및 표준편차 저장
+print("\n[0] 대표 벡터 유형별 유사도 통계 요약")
+summary_df = results_df.groupby(['case', 'delegate_type'])['similarity_score'].agg(['mean', 'std']).reset_index()
+print(summary_df.round(4))
+summary_path = result_data_path.parent / "similarity_score_summary.csv"
+summary_df.to_csv(summary_path, index=False, float_format="%.4f")
+print(f"  - 저장 완료: {summary_path}")
+
 # 저장 경로 설정
 output_dir = result_data_path.parent
-output_img_dir = output_dir
+output_img_dir = output_dir / "img"
+output_img_dir.mkdir(parents=True, exist_ok=True)
 output_csv_dir = output_dir
 
 # -------------------- 분석 및 시각화 --------------------
-
 groups = results_df.groupby(['case', 'delegate_type'])
 class_list = sorted(results_df['true_class'].unique())
 
@@ -79,7 +85,7 @@ plt.savefig(score_dist_path)
 plt.close()
 print(f"  - 저장 완료: {score_dist_path}")
 
-# [3] 분류 성능 리포트
+# [3] Precision / Recall / F1 Score 출력 및 저장
 print("\n[3] 분류 성능 리포트 (Precision / Recall / F1 Score)")
 for (case, dtype), group_df in groups:
     print(f"\n📘 [{case.upper()} - {dtype}] 결과:")
@@ -94,5 +100,27 @@ for (case, dtype), group_df in groups:
     report_df.to_csv(csv_path, float_format='%.4f')
     print(report_df.round(4))
     print(f"  - 저장 완료: {csv_path}")
+
+print("\n[4] .npy 유사도 분포 시각화")
+from pathlib import Path
+import numpy as np
+
+score_dir = Path("results") / "score_distribution"
+if score_dir.exists():
+    npy_files = sorted(score_dir.glob("*.npy"))
+    for npy_file in npy_files:
+        scores = np.load(npy_file)
+        plt.figure()
+        sns.histplot(scores, bins=20, kde=True)
+        plt.title(f"Score Distribution: {npy_file.stem}")
+        plt.xlabel("Cosine Similarity")
+        plt.ylabel("Frequency")
+        plt.tight_layout()
+        save_path = output_img_dir / f"{npy_file.stem}_hist.png"
+        plt.savefig(save_path)
+        plt.close()
+        print(f"  - 저장 완료: {save_path}")
+else:
+    print("⚠️ score_distribution 디렉토리가 존재하지 않습니다.")
 
 print("\n✅ 분석 및 시각화 완료.")

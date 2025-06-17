@@ -246,4 +246,7 @@ with gr.Blocks(title="Retriever-Based Object Segmentation") as demo:
     download_output_btn.click(fn=download_output, outputs=download_file)
 
 if __name__ == "__main__":
+    import requests
+    external_ip = requests.get('http://ifconfig.me').text.strip()
+    print(f"🌐 외부 접속 URL: http://{external_ip}:7890")
     demo.launch(server_name="0.0.0.0", server_port=7890)

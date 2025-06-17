@@ -15,8 +15,21 @@ from sklearn.metrics import accuracy_score
 
 # -------------------- 하이퍼파라미터 --------------------
 
-# 사용자 입력 받기
-root_dir = input("데이터 루트 디렉토리를 입력해주세요 (예: dataset_segmented): ").strip()
+# 사용자 입력 받기 - 테스트 그룹 선택
+print("[Q0] 실험할 테스트 그룹을 선택하세요:")
+testgroup_options = {
+    "1": ("TestGroup1", "dataset_segmented"),
+    "2": ("TestGroup2", "dataset_cropped")
+}
+for k, v in testgroup_options.items():
+    print(f"{k}) {v[0]} ({v[1]})")
+while True:
+    selected = input("→ 번호 입력: ").strip()
+    if selected in testgroup_options:
+        test_group, root_dir = testgroup_options[selected]
+        break
+    print("❌ 잘못된 입력입니다. 다시 선택해주세요.")
+
 original_image_dir = "original_images"
 natural_image_dir = "natural_images"
 
@@ -25,18 +38,35 @@ qdrant_host = input("Qdrant 호스트 [기본값: localhost]: ").strip() or "loc
 qdrant_port = input("Qdrant 포트 [기본값: 6333]: ").strip()
 qdrant_port = int(qdrant_port) if qdrant_port else 6333
 
+# Qdrant 클라이언트 초기화
+client = QdrantClient(host=qdrant_host, port=qdrant_port)
+collections = [c.name for c in client.get_collections().collections]
+if not collections:
+    print("❌ 사용 가능한 컬렉션이 없습니다.")
+    sys.exit(1)
+
+print("\n[Q1] 사용할 Qdrant 컬렉션을 선택하세요:")
+for idx, name in enumerate(collections):
+    print(f"{idx+1}) {name}")
+while True:
+    try:
+        col_idx = int(input("→ 컬렉션 번호 입력: ")) - 1
+        collection_name = collections[col_idx]
+        break
+    except:
+        print("❌ 잘못된 입력입니다. 다시 입력해주세요.")
+
 # 실험 설정
-cases = ['case_a', 'case_b', 'case_c']
+cases = ['pre_a', 'pre_b', 'pre_c']
 delegate_types = ['average', 'centroid', 'weighted', 'medoid']
 
 # -------------------- 유틸리티 함수 --------------------
-
 def get_output_csv_path():
     today = datetime.datetime.now().strftime("%Y-%m-%d")
     count = 1
-    base_dir = Path("results")
+    result_dir = Path("results")
     while True:
-        subdir = base_dir / f"{today}-{count}"
+        subdir = result_dir / f"{today}-{count}"
         file_path = subdir / f"result_{today}-{count}.csv"
         if not file_path.exists():
             subdir.mkdir(parents=True, exist_ok=True)
@@ -46,26 +76,14 @@ def get_output_csv_path():
 def cosine_similarity(a, b):
     return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
 
-# -------------------- Qdrant Client 초기화 --------------------
-
-client = QdrantClient(host=qdrant_host, port=qdrant_port)
-collections = [c.name for c in client.get_collections().collections]
-
-# natural 이미지에 대한 통계 저장용
-class_image_count = defaultdict(int)
-
 # -------------------- 실험 수행 --------------------
 
 all_results = []
+class_image_count = defaultdict(int)
 
 print("\n실험을 시작합니다. 총 12개의 실험을 순차적으로 실행합니다.\n")
 
 for case in cases:
-    collection_name = f"clip_embedding_{case}"
-    if collection_name not in collections:
-        print(f"\u274C {collection_name} 컬렉션이 존재하지 않습니다. 스킵합니다.")
-        continue
-
     # natural 이미지 루프
     for class_name in sorted(os.listdir(f"{root_dir}/{natural_image_dir}")):
         class_dir = Path(root_dir) / natural_image_dir / class_name
@@ -73,7 +91,7 @@ for case in cases:
             continue
 
         for img_file in tqdm(list(class_dir.glob("*.png")), desc=f"{case}/{class_name}"):
-            # 테스트 이미지 임베딩 벡터 불러오기
+            # 테스트 이미지 벡터 조회
             scroll_result, _ = client.scroll(
                 collection_name=collection_name,
                 scroll_filter=Filter(
@@ -89,6 +107,7 @@ for case in cases:
                 continue
 
             test_vec = np.array(scroll_result[0].vector)
+            test_payload = scroll_result[0].payload
             class_image_count[class_name] += 1
 
             # 각 대표 벡터 타입별 유사도 비교
@@ -98,23 +117,24 @@ for case in cases:
                     scroll_filter=Filter(
                         must=[
                             FieldCondition(key="delegate_type", match=MatchValue(value=dtype)),
-                            FieldCondition(key="is_delegate", match=MatchValue(value=True))
+                            FieldCondition(key="is_delegate", match=MatchValue(value=True)),
+                            FieldCondition(key="class_name", match=MatchValue(value=class_name)),
+                            FieldCondition(key="data_type", match=MatchValue(value=test_payload.get("data_type"))),
+                            FieldCondition(key="is_segmented", match=MatchValue(value=test_payload.get("is_segmented"))),
+                            FieldCondition(key="is_augmented", match=MatchValue(value=test_payload.get("is_augmented")))
                         ]
                     ),
                     with_vectors=True,
                     with_payload=True,
-                    limit=9999
+                    limit=1
                 )
 
-                best_score = -1
-                best_class = None
+                if not scroll_delegate:
+                    continue
 
-                for p in scroll_delegate:
-                    ref_vec = np.array(p.vector)
-                    score = cosine_similarity(test_vec, ref_vec)
-                    if score > best_score:
-                        best_score = score
-                        best_class = p.payload.get("class_name")
+                ref_vec = np.array(scroll_delegate[0].vector)
+                best_score = cosine_similarity(test_vec, ref_vec)
+                best_class = scroll_delegate[0].payload.get("class_name")
 
                 all_results.append({
                     "experiment_id": f"{case}_{dtype}",
@@ -125,6 +145,20 @@ for case in cases:
                     "predicted_class": best_class,
                     "similarity_score": best_score
                 })
+
+                # 저장할 디렉토리 경로
+                score_dir = Path("results") / "score_distribution"
+                score_dir.mkdir(parents=True, exist_ok=True)
+                score_path = score_dir / f"{case}_{dtype}_scores.npy"
+
+                # 기존 파일이 있으면 불러와서 append
+                if score_path.exists():
+                    existing_scores = list(np.load(score_path))
+                else:
+                    existing_scores = []
+
+                existing_scores.append(best_score)
+                np.save(score_path, np.array(existing_scores))
 
 # -------------------- CSV 저장 --------------------
 
