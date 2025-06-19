@@ -28,13 +28,7 @@ model_choice = input("선택: ")
 model_map = {"1": "vit_b", "2": "vit_l", "3": "vit_h"}
 MODEL_TYPE = model_map.get(model_choice, "vit_b")
 
-# 세그멘테이션 후보 마스크 개수 입력 받기
-print("세그멘테이션 후보 마스크를 최대 몇 개까지 생성할지 입력해주세요 (기본값: 3)")
-try:
-    num_mask_candidates = int(input("입력: ").strip())
-except:
-    num_mask_candidates = 3
-print(f"✅ 세그멘테이션 후보 마스크 최대 개수: {num_mask_candidates}")
+num_mask_candidates = 3
 
 CHECKPOINT_URLS = {
     "vit_b": "https://dl.fbaipublicfiles.com/segment_anything/sam_vit_b_01ec64.pth",
@@ -132,28 +126,21 @@ def pass_selected_image_to_step2():
         print(f"이미지 로드 오류: {e}")
         return None, f"로드 실패: {e}"
 
-def collect_click_point(evt: gr.SelectData):
-    print("📌 collect_click_point() called")
+
+# 단일 클릭 포인트로 세그멘테이션 실행 (old working script 방식)
+def segment_with_click(evt: gr.SelectData):
+    print("📌 segment_with_click() called")
+    image = state.get("selected_image")
+    if image is None:
+        print("❌ 이미지 없음")
+        return [], "❌ 이미지가 없습니다."
+    # evt.index: (x, y)
     x, y = evt.index[0], evt.index[1]
     print("🖱️ 클릭 좌표:", (x, y))
-    state["click_points"].append((x, y))
-    return f"현재까지 선택된 포인트 수: {len(state['click_points'])}"
-
-# 여러 클릭 포인트로 세그멘테이션 실행
-def segment_from_clicks():
-    print("📌 segment_from_clicks() called")
-    image = state.get("selected_image")
-    click_points = state.get("click_points", [])
-    if image is None or not click_points:
-        print("❌ 이미지 또는 클릭 좌표 없음")
-        return [], "❌ 이미지 또는 클릭 좌표가 없습니다."
-
     image_np = np.array(image)
     predictor.set_image(image_np)
-    input_point = np.array(click_points)
-    input_label = np.ones(len(click_points), dtype=int)
-    print("🎯 클릭 포인트들:", input_point.tolist())
-
+    input_point = np.array([[x, y]])
+    input_label = np.array([1], dtype=int)
     try:
         masks, _, _ = predictor.predict(point_coords=input_point, point_labels=input_label, multimask_output=True)
         candidate_count = min(num_mask_candidates, masks.shape[0])
@@ -161,7 +148,6 @@ def segment_from_clicks():
     except Exception as e:
         print("Segmentation 오류:", e)
         return [], "Segmentation 오류 발생"
-
     state["masks"] = selected_masks
     previews = []
     for i in range(candidate_count):
@@ -169,7 +155,7 @@ def segment_from_clicks():
         rgba = np.dstack((image_np, m.astype(np.uint8) * 255))
         previews.append(Image.fromarray(rgba))
     print(f"✅ {len(previews)}개 마스크 생성 완료")
-    return previews, "✅ 세그멘테이션 완료"
+    return previews
 
 def select_mask_by_index(evt: gr.SelectData):
     idx = evt.index
@@ -226,125 +212,6 @@ def download_output():
     print(f"✅ 압축 완료: {zip_path}")
     return str(zip_path)
 
-def on_brush_change(sketch_data):
-    print("🖌️ 브러시 변경 감지됨!")
-    if isinstance(sketch_data, dict):
-        print("  📦 sketch_data keys:", list(sketch_data.keys()))
-        print("  📌 레이어 수:", len(sketch_data.get("layers", [])))
-    elif isinstance(sketch_data, np.ndarray):
-        print("  📐 ndarray 입력 감지됨 - shape:", sketch_data.shape)
-    else:
-        print("  ❓ 알 수 없는 타입:", type(sketch_data))
-    return None
-
-def segment_from_brush(sketch_data):
-    print("📌 segment_from_brush() called")
-
-    if not sketch_data:
-        return [], "❌ 브러시 입력 없음"
-
-    # Handle the case where sketch_data is a numpy array (unexpected)
-    if isinstance(sketch_data, np.ndarray):
-        print("❌ 예상치 못한 sketch_data 타입: numpy.ndarray")
-        return [], "❌ 브러시 데이터가 base64 이미지가 아니라 직접적인 ndarray입니다. 레이어 기반 브러시만 지원됩니다."
-
-    if not isinstance(sketch_data, dict):
-        print(f"❌ sketch_data 타입 오류: {type(sketch_data)}")
-        return [], f"❌ 입력 오류: sketch_data는 dict여야 합니다 (받은 타입: {type(sketch_data)})"
-
-    # 추가: sketch_data 전체 구조 출력
-    print("📦 sketch_data 전체 내용:", sketch_data)
-
-    layers = sketch_data.get("layers", [])
-
-    try:
-        import cv2
-        from base64 import b64decode
-        from io import BytesIO
-        from PIL import Image
-        import base64
-
-        # Decode image from base64 sketch data
-        base64_data = None
-        print(f"🖌️ sketch_data 레이어 수: {len(layers)}")
-        for i, layer in enumerate(reversed(layers)):
-            print(f"🔍 레이어[{len(layers) - 1 - i}] 내용 타입:", type(layer))
-            image_data = None
-            if isinstance(layer, dict):
-                image_data = layer.get("image", None)
-                print(f"  🔍 layer[{len(layers) - 1 - i}] - keys: {list(layer.keys())}, image: {'yes' if image_data else 'no'}")
-            elif isinstance(layer, str) and layer.startswith("data:image"):
-                image_data = layer
-                print(f"  🔍 layer[{len(layers) - 1 - i}] - base64 image string directly")
-            elif isinstance(layer, np.ndarray):
-                from io import BytesIO
-                import base64
-                from PIL import Image
-                buffered = BytesIO()
-                Image.fromarray(layer).save(buffered, format="PNG")
-                image_data = "data:image/png;base64," + base64.b64encode(buffered.getvalue()).decode()
-                print(f"  🔍 layer[{len(layers) - 1 - i}] - numpy array로부터 base64 인코딩됨")
-            else:
-                print(f"  ⚠️ layer[{len(layers) - 1 - i}]는 지원되지 않는 타입입니다: {type(layer)}")
-                continue
-
-            if isinstance(image_data, str) and image_data.startswith("data:image"):
-                base64_data = image_data.split(",")[1]
-                print(f"  ✅ 유효한 base64 이미지 레이어 발견 (index={len(layers) - 1 - i})")
-                break
-
-        if base64_data is None:
-            print("❌ 유효한 이미지 레이어를 찾을 수 없음")
-            return [], "❌ 브러시 이미지 레이어가 없습니다."
-
-        sketch_img = Image.open(BytesIO(b64decode(base64_data))).convert("RGBA")
-        sketch_np = np.array(sketch_img)
-
-        alpha = sketch_np[:, :, 3]
-        rgb = sketch_np[:, :, :3]
-        ys, xs = np.where(alpha > 20)
-        if len(xs) == 0 or len(ys) == 0:
-            return [], "❌ 선택된 영역이 없습니다."
-
-        input_point = np.stack([xs, ys], axis=1)
-        input_label = np.ones(len(input_point), dtype=int)
-
-        # Add debug print statements before predictor.set_image
-        print("🎨 브러시 입력 이미지 shape:", sketch_np.shape)
-        print("🧼 알파 채널 고유값:", np.unique(sketch_np[:, :, 3]))
-        print("📌 선택된 점 개수:", len(xs))
-        print("📍 input_point 샘플:", input_point[:5].tolist() if len(input_point) >= 5 else input_point.tolist())
-
-        predictor.set_image(rgb)
-        masks, _, _ = predictor.predict(point_coords=input_point, point_labels=input_label, multimask_output=True)
-
-        print("✅ predictor.predict() 호출됨")
-        print("📏 masks 타입:", type(masks))
-        print("📐 masks shape/info:", getattr(masks, "shape", "N/A"), getattr(masks, "__len__", lambda: "N/A")())
-
-        # 마스크가 np.ndarray인지 확인하고, 3차원 배열인지 확인
-        if isinstance(masks, np.ndarray) and masks.ndim == 3:
-            selected_masks = [masks[i] for i in range(min(num_mask_candidates, masks.shape[0]))]
-        elif isinstance(masks, list):
-            selected_masks = masks[:min(num_mask_candidates, len(masks))]
-        else:
-            print("❌ 알 수 없는 마스크 타입:", type(masks))
-            return [], "❌ 예기치 않은 마스크 타입입니다."
-
-        print(f"🖼️ 선택된 마스크 수: {len(selected_masks)}")
-        for idx, m in enumerate(selected_masks):
-            print(f" - 마스크 {idx}: 타입={type(m)}, shape={getattr(m, 'shape', 'N/A')}")
-
-        state["masks"] = selected_masks
-        previews = []
-        for i, m in enumerate(selected_masks):
-            rgba = np.dstack((rgb, m.astype(np.uint8) * 255))
-            previews.append(Image.fromarray(rgba))
-
-        return previews, "✅ 세그멘테이션 완료"
-    except Exception as e:
-        print("세그멘테이션 오류:", e)
-        return [], f"세그멘테이션 실패: {e}"
 
 with gr.Blocks(title="Retriever-Based Object Segmentation") as demo:
     gr.Markdown("### 디렉토리 설정")
@@ -373,26 +240,19 @@ with gr.Blocks(title="Retriever-Based Object Segmentation") as demo:
     next_step_btn = gr.Button("다음 단계(Step2)로 진행")
 
     gr.Markdown("### Step 2: 세그멘테이션")
-    with gr.Row():
-        segment_display = gr.Sketchpad(label="브러시로 객체를 칠해보세요", canvas_size=(512, 1024), brush=20)
-    run_segment_btn = gr.Button("해당 영역 중심으로 배경 제거")
+    # Replace Sketchpad with Image for click-based input
+    segment_display = gr.Image(label="객체를 클릭하세요 (Step2)", type="pil")
     segment_status = gr.Textbox(label="세그멘테이션 상태")
-
-    mask_gallery = gr.Gallery(label="마스크 후보", columns=3, height=400, allow_preview=True)
-    run_segment_btn.click(fn=segment_from_brush, inputs=[segment_display], outputs=[mask_gallery, segment_status])
-    segment_display.change(fn=on_brush_change, inputs=segment_display, outputs=[])
-
+    gr.Markdown("### 마스크 후보")
+    mask_gallery = gr.Gallery(columns=3, height=400, allow_preview=True)
     segment_path_display = gr.Textbox(label="현재 세그멘테이션 이미지 경로 (Step2)", interactive=False)
-
     selected_mask_display = gr.Image(label="선택된 마스크", type="pil")
     confirm_btn = gr.Button("선택한 마스크 적용 및 저장")
     save_status = gr.Textbox(label="저장 결과")
-    segment_display.select(fn=collect_click_point, outputs=gr.Textbox(visible=False))  # 숨겨진 출력으로 호출
-    segment_btn = gr.Button("배경제거 작업 진행")
-    segment_btn.click(fn=segment_from_clicks, outputs=[mask_gallery, segment_status])
+    # 클릭 시 바로 세그멘테이션 실행
+    segment_display.select(fn=segment_with_click, outputs=[mask_gallery])
     mask_gallery.select(fn=select_mask_by_index, outputs=selected_mask_display)
     confirm_btn.click(fn=apply_selected_mask, inputs=[], outputs=save_status)
-
     # 다음 단계(Step2)로 진행 버튼 클릭 시: 선택된 이미지를 numpy array로 segment_display로 전달
     next_step_btn.click(fn=pass_selected_image_to_step2, outputs=[segment_display, segment_path_display])
 
