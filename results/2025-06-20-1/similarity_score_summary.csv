@@ -1,0 +1,9 @@
+case,delegate_type,mean,std
+pre_a,average,0.9486,0.0140
+pre_a,centroid,0.9219,0.0203
+pre_a,medoid,0.9219,0.0203
+pre_a,weighted,0.9490,0.0142
+pre_b,average,0.9487,0.0140
+pre_b,centroid,0.9219,0.0203
+pre_b,medoid,0.9219,0.0203
+pre_b,weighted,0.9490,0.0142

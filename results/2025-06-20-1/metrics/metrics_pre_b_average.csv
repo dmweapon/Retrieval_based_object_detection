@@ -1,0 +1,5 @@
+,case,delegate_type,precision,recall,f1-score,support
+cocacola-cocacola-default-350,pre_b,average,1.0000,1.0000,1.0000,93.0000
+accuracy,pre_b,average,1.0000,1.0000,1.0000,1.0000
+macro avg,pre_b,average,1.0000,1.0000,1.0000,93.0000
+weighted avg,pre_b,average,1.0000,1.0000,1.0000,93.0000
