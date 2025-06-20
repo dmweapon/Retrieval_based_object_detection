@@ -7,6 +7,7 @@ from sklearn.metrics import confusion_matrix, classification_report, ConfusionMa
 from pathlib import Path
 import glob
 import sys
+import numpy as np
 
 # -------------------- CSV 목록 선택 --------------------
 def select_result_csv():
@@ -47,7 +48,8 @@ print(f"  - 저장 완료: {summary_path}")
 output_dir = result_data_path.parent
 output_img_dir = output_dir / "img"
 output_img_dir.mkdir(parents=True, exist_ok=True)
-output_csv_dir = output_dir
+output_csv_dir = output_dir / "metrics"
+output_csv_dir.mkdir(parents=True, exist_ok=True)
 
 # -------------------- 분석 및 시각화 --------------------
 groups = results_df.groupby(['case', 'delegate_type'])
@@ -102,25 +104,26 @@ for (case, dtype), group_df in groups:
     print(f"  - 저장 완료: {csv_path}")
 
 print("\n[4] .npy 유사도 분포 시각화")
-from pathlib import Path
-import numpy as np
-
-score_dir = Path("results") / "score_distribution"
+# score_dir 경로를 선택된 CSV 파일의 부모 디렉토리 기준으로 설정
+score_dir = result_data_path.parent / "score_distribution"
 if score_dir.exists():
     npy_files = sorted(score_dir.glob("*.npy"))
-    for npy_file in npy_files:
-        scores = np.load(npy_file)
-        plt.figure()
-        sns.histplot(scores, bins=20, kde=True)
-        plt.title(f"Score Distribution: {npy_file.stem}")
-        plt.xlabel("Cosine Similarity")
-        plt.ylabel("Frequency")
-        plt.tight_layout()
-        save_path = output_img_dir / f"{npy_file.stem}_hist.png"
-        plt.savefig(save_path)
-        plt.close()
-        print(f"  - 저장 완료: {save_path}")
+    if not npy_files:
+        print("⚠️ score_distribution 디렉토리 내에 .npy 파일이 존재하지 않습니다.")
+    else:
+        for npy_file in npy_files:
+            scores = np.load(npy_file)
+            plt.figure()
+            sns.histplot(scores, bins=20, kde=True)
+            plt.title(f"Score Distribution: {npy_file.stem}")
+            plt.xlabel("Cosine Similarity")
+            plt.ylabel("Frequency")
+            plt.tight_layout()
+            save_path = output_img_dir / f"{npy_file.stem}_hist.png"
+            plt.savefig(save_path)
+            plt.close()
+            print(f"  - 저장 완료: {save_path}")
 else:
-    print("⚠️ score_distribution 디렉토리가 존재하지 않습니다.")
+    print(f"⚠️ {score_dir} 디렉토리가 존재하지 않습니다.")
 
 print("\n✅ 분석 및 시각화 완료.")

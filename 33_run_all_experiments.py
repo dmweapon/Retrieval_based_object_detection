@@ -80,6 +80,7 @@ def cosine_similarity(a, b):
 
 all_results = []
 class_image_count = defaultdict(int)
+all_scores = defaultdict(list)  # 점수 저장을 위한 딕셔너리
 
 print("\n실험을 시작합니다. 총 12개의 실험을 순차적으로 실행합니다.\n")
 
@@ -160,24 +161,14 @@ for case in cases:
                     "similarity_score": best_score
                 })
 
-                # 저장할 디렉토리 경로
-                score_dir = Path("results") / "score_distribution"
-                score_dir.mkdir(parents=True, exist_ok=True)
-                score_path = score_dir / f"{case}_{dtype}_scores.npy"
+                # 점수를 딕셔너리에 임시 저장
+                all_scores[f"{case}_{dtype}"].append(best_score)
 
-                # 기존 파일이 있으면 불러와서 append
-                if score_path.exists():
-                    existing_scores = list(np.load(score_path))
-                else:
-                    existing_scores = []
-
-                existing_scores.append(best_score)
-                np.save(score_path, np.array(existing_scores))
-
-# -------------------- CSV 저장 --------------------
+# -------------------- CSV 및 NPY 저장 --------------------
 
 output_path = get_output_csv_path()
 
+# CSV 파일 저장
 with open(output_path, 'w', newline='') as f:
     writer = csv.DictWriter(f, fieldnames=[
         "experiment_id", "case", "delegate_type", "image_path",
@@ -186,6 +177,24 @@ with open(output_path, 'w', newline='') as f:
     writer.writerows(all_results)
 
 print(f"\n✅ 실험 결과 저장 완료: {output_path}")
+
+# NPY 파일 저장 및 요약 출력
+print("\n🗂️ NPY 파일 저장 및 요약:")
+score_dir = output_path.parent / "score_distribution"
+score_dir.mkdir(parents=True, exist_ok=True)
+
+for key, scores_list in sorted(all_scores.items()):
+    score_path = score_dir / f"{key}_scores.npy"
+    scores_np = np.array(scores_list)
+    np.save(score_path, scores_np)
+
+    print(f"\n- 파일: {score_path}")
+    if len(scores_np) > 0:
+        print(f"  저장된 점수 개수: {len(scores_np)}")
+        print(f"  점수 미리보기 (최대 5개): {scores_np[:5]}")
+        print(f"  평균 점수: {np.mean(scores_np):.4f}")
+    else:
+        print(f"  저장된 점수 없음")
 
 # -------------------- 요약 통계 출력 --------------------
 
