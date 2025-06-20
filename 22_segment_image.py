@@ -114,6 +114,27 @@ def select_image(evt: gr.SelectData):
         print(f"❌ select_image 오류: {e}")
         return ""
 
+def select_output_image(evt: gr.SelectData):
+    """
+    Step 3 출력 갤러리에서 이미지 선택 (state["selected_path"]를 변경하지 않음)
+    """
+    try:
+        output_dir = state.get("output_dir")
+        if not output_dir or not output_dir.exists():
+            return None
+        png_paths = sorted([p for p in output_dir.glob("*.png") if p.is_file()])
+        idx = 0
+        if evt.index is not None:
+            idx = evt.index[0] if isinstance(evt.index, (list, tuple)) else evt.index
+        if idx < len(png_paths):
+            selected_output_path = png_paths[idx]
+            image = Image.open(selected_output_path)
+            return image
+        return None
+    except Exception as e:
+        print(f"❌ select_output_image 오류: {e}")
+        return None
+
 def pass_selected_image_to_step2():
     path = state.get("selected_path")
     if not path or not path.exists():
@@ -128,64 +149,136 @@ def pass_selected_image_to_step2():
 
 
 # 단일 클릭 포인트로 세그멘테이션 실행 (old working script 방식)
-def segment_with_click(evt: gr.SelectData):
+def segment_with_click(evt: gr.SelectData, progress=gr.Progress()):
     print("📌 segment_with_click() called")
+    
+    # Progress 상태 완전 초기화
+    progress(None)  # 기존 progress 숨기기
+    progress(0.0, desc="🔄 세그멘테이션 시작...")
+    
+    import time
+    time.sleep(0.1)  # Progress 초기화를 위한 짧은 대기
+    
     image = state.get("selected_image")
     if image is None:
         print("❌ 이미지 없음")
+        progress(1.0, desc="❌ 이미지 없음")
         return [], "❌ 이미지가 없습니다."
+    
     # evt.index: (x, y)
     x, y = evt.index[0], evt.index[1]
     print("🖱️ 클릭 좌표:", (x, y))
+    
+    # 이미지 전처리 진행 상태
+    progress(0.25, desc="📷 이미지 전처리 중...")
     image_np = np.array(image)
     predictor.set_image(image_np)
+    
+    # 세그멘테이션 실행 진행 상태
+    progress(0.50, desc="🎯 세그멘테이션 실행 중...")
     input_point = np.array([[x, y]])
     input_label = np.array([1], dtype=int)
+    
     try:
         masks, _, _ = predictor.predict(point_coords=input_point, point_labels=input_label, multimask_output=True)
         candidate_count = min(num_mask_candidates, masks.shape[0])
         selected_masks = masks[:candidate_count]
     except Exception as e:
         print("Segmentation 오류:", e)
+        progress(1.0, desc="❌ 세그멘테이션 오류 발생")
         return [], "Segmentation 오류 발생"
+    
+    # 마스크 후보 생성 진행 상태
+    progress(0.75, desc="🎨 마스크 후보 생성 중...")
     state["masks"] = selected_masks
     previews = []
+    
     for i in range(candidate_count):
+        progress(0.75 + (i * 0.20 / candidate_count), desc=f"🎨 마스크 {i+1}/{candidate_count} 생성 중...")
         m = selected_masks[i]
         rgba = np.dstack((image_np, m.astype(np.uint8) * 255))
         previews.append(Image.fromarray(rgba))
+    
+    # 완료 상태
+    progress(1.0, desc=f"✅ {len(previews)}개 마스크 생성 완료!")
     print(f"✅ {len(previews)}개 마스크 생성 완료")
     return previews
 
-def select_mask_by_index(evt: gr.SelectData):
+def select_mask_by_index(evt: gr.SelectData, progress=gr.Progress()):
     idx = evt.index
     print("📌 select_mask_by_index() called with index:", idx)
+    
+    # Progress 상태 완전 초기화
+    progress(None)  # 기존 progress 숨기기
+    progress(0.0, desc="🔍 마스크 선택 시작...")
+    
+    import time
+    time.sleep(0.05)  # Progress 초기화를 위한 짧은 대기
+    
     masks = state.get("masks")
     image = state.get("selected_image")
     if image is None or masks is None or idx >= len(masks):
         print("❌ 유효하지 않은 마스크 선택")
+        progress(1.0, desc="❌ 유효하지 않은 마스크")
         return None
+    
+    progress(0.50, desc="🎨 마스크 적용 중...")
     mask = masks[idx]
     state["selected_mask_array"] = mask
+    
+    progress(0.80, desc="📷 이미지 생성 중...")
     rgba = np.dstack((np.array(image), mask.astype(np.uint8) * 255))
+    
+    progress(1.0, desc="✅ 마스크 선택 완료!")
     return Image.fromarray(rgba)
 
-def apply_selected_mask(_):
+def reset_mask_gallery():
+    """마스크 갤러리를 다시 로드하여 선택 상태 초기화"""
+    masks = state.get("masks")
+    image = state.get("selected_image")
+    if image is None or masks is None:
+        return []
+    
+    image_np = np.array(image)
+    previews = []
+    for i, m in enumerate(masks):
+        rgba = np.dstack((image_np, m.astype(np.uint8) * 255))
+        previews.append(Image.fromarray(rgba))
+    return previews
+
+def apply_selected_mask(_, progress=gr.Progress()):
     print("📌 apply_selected_mask() 호출됨")
+    
+    # Progress 상태 완전 초기화
+    progress(None)  # 기존 progress 숨기기
+    progress(0.0, desc="💾 저장 작업 시작...")
+    
+    import time
+    time.sleep(0.05)  # Progress 초기화를 위한 짧은 대기
+    
     selected_image = state.get("selected_image")
     selected_mask = state.get("selected_mask_array")
     if selected_image is None or selected_mask is None:
         print("❌ 이미지 또는 마스크 없음")
+        progress(1.0, desc="❌ 이미지 또는 마스크 없음")
         return "❌ 이미지 또는 마스크가 없습니다."
+    
+    progress(0.25, desc="📁 출력 디렉토리 생성 중...")
     out_dir = state.get("output_dir")
     out_dir.mkdir(parents=True, exist_ok=True)
     stem = state["selected_path"].stem
     save_path = out_dir / f"{stem}_rmbg.png"
+    
+    progress(0.50, desc="🎨 이미지 처리 중...")
     rgb = np.array(selected_image)
     alpha = selected_mask.astype(np.uint8) * 255
     rgba = np.dstack([rgb, alpha])
     print("✅ 최종 저장 이미지 shape:", rgba.shape)
+    
+    progress(0.80, desc="💾 파일 저장 중...")
     Image.fromarray(rgba).save(save_path)
+    
+    progress(1.0, desc="✅ 저장 완료!")
     return f"✅ 저장 완료: {save_path}"
 
 def load_output_images():
@@ -244,15 +337,18 @@ with gr.Blocks(title="Retriever-Based Object Segmentation") as demo:
     segment_display = gr.Image(label="객체를 클릭하세요 (Step2)", type="pil")
     segment_status = gr.Textbox(label="세그멘테이션 상태")
     gr.Markdown("### 마스크 후보")
-    mask_gallery = gr.Gallery(columns=3, height=400, allow_preview=True)
+    mask_gallery = gr.Gallery(columns=3, height=350, allow_preview=True, selected_index=None)  # selected_index=None으로 재선택 가능하게 설정
     segment_path_display = gr.Textbox(label="현재 세그멘테이션 이미지 경로 (Step2)", interactive=False)
     selected_mask_display = gr.Image(label="선택된 마스크", type="pil")
     confirm_btn = gr.Button("선택한 마스크 적용 및 저장")
     save_status = gr.Textbox(label="저장 결과")
-    # 클릭 시 바로 세그멘테이션 실행
-    segment_display.select(fn=segment_with_click, outputs=[mask_gallery])
-    mask_gallery.select(fn=select_mask_by_index, outputs=selected_mask_display)
-    confirm_btn.click(fn=apply_selected_mask, inputs=[], outputs=save_status)
+    # 클릭 시 바로 세그멘테이션 실행 (Progress를 segment_status에 표시, full progress 표시)
+    segment_display.select(fn=segment_with_click, outputs=[mask_gallery], show_progress_on=segment_status, show_progress="full")
+    
+    # 마스크 갤러리 선택 - trigger_mode="multiple"로 같은 이미지 재클릭 허용
+    mask_gallery.select(fn=select_mask_by_index, outputs=[selected_mask_display], show_progress_on=segment_status, show_progress="full", trigger_mode="multiple")
+    
+    confirm_btn.click(fn=apply_selected_mask, inputs=[], outputs=save_status, show_progress_on=save_status, show_progress="full")
     # 다음 단계(Step2)로 진행 버튼 클릭 시: 선택된 이미지를 numpy array로 segment_display로 전달
     next_step_btn.click(fn=pass_selected_image_to_step2, outputs=[segment_display, segment_path_display])
 
@@ -264,7 +360,7 @@ with gr.Blocks(title="Retriever-Based Object Segmentation") as demo:
     download_output_btn = gr.Button("전체 다운로드")
     download_file = gr.File(label="압축파일")
     output_btn.click(fn=load_output_images, outputs=[output_gallery, output_path_list])
-    output_gallery.select(fn=select_image, outputs=selected_output_image_display)
+    output_gallery.select(fn=select_output_image, outputs=selected_output_image_display)
     download_output_btn.click(fn=download_output, outputs=download_file)
 
 

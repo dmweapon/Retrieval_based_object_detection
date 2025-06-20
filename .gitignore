@@ -2,3 +2,5 @@
 /dataset_*
 /model
 *.tar*
+
+/.cursor
