@@ -112,18 +112,32 @@ for case in cases:
 
             # 각 대표 벡터 타입별 유사도 비교
             for dtype in delegate_types:
+                # case에 따른 필터 조건 동적 생성
+                filter_must = [
+                    FieldCondition(key="delegate_type", match=MatchValue(value=dtype)),
+                    FieldCondition(key="is_delegate", match=MatchValue(value=True)),
+                    FieldCondition(key="class_name", match=MatchValue(value=class_name)),
+                    FieldCondition(key="data_type", match=MatchValue(value=test_payload.get("data_type"))),
+                ]
+                if case == 'pre_a': # is_cropped=True, is_segmented=False, is_augmented=False
+                    filter_must.extend([
+                        FieldCondition(key="is_cropped", match=MatchValue(value=True)),
+                        FieldCondition(key="is_segmented", match=MatchValue(value=False)),
+                        FieldCondition(key="is_augmented", match=MatchValue(value=False)),
+                    ])
+                elif case == 'pre_b': # is_segmented=True
+                     filter_must.extend([
+                        FieldCondition(key="is_segmented", match=MatchValue(value=True)),
+                        FieldCondition(key="is_augmented", match=MatchValue(value=False)),
+                    ])
+                elif case == 'pre_c': # is_augmented=True
+                     filter_must.append(
+                         FieldCondition(key="is_augmented", match=MatchValue(value=True))
+                     )
+
                 scroll_delegate, _ = client.scroll(
                     collection_name=collection_name,
-                    scroll_filter=Filter(
-                        must=[
-                            FieldCondition(key="delegate_type", match=MatchValue(value=dtype)),
-                            FieldCondition(key="is_delegate", match=MatchValue(value=True)),
-                            FieldCondition(key="class_name", match=MatchValue(value=class_name)),
-                            FieldCondition(key="data_type", match=MatchValue(value=test_payload.get("data_type"))),
-                            FieldCondition(key="is_segmented", match=MatchValue(value=test_payload.get("is_segmented"))),
-                            FieldCondition(key="is_augmented", match=MatchValue(value=test_payload.get("is_augmented")))
-                        ]
-                    ),
+                    scroll_filter=Filter(must=filter_must),
                     with_vectors=True,
                     with_payload=True,
                     limit=1
