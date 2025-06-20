@@ -100,45 +100,62 @@ def main():
             except:
                 print("❌ 잘못된 입력입니다.")
 
-        # [3] 해당 클래스의 벡터 불러오기
-        results = client.scroll(
-            collection_name=collection_name,
-            scroll_filter=Filter(
-                must=[
-                    FieldCondition(key="class_name", match=MatchValue(value=class_name)),
-                    FieldCondition(key="is_delegate", match=MatchValue(value=False))
-                ]
-            ),
-            with_vectors=True,
-            with_payload=True,
-            limit=9999
-        )[0]
-        if not results:
-            print(f"❌ 클래스 '{class_name}'에 해당하는 벡터가 없습니다.")
-            continue
-
-        vectors_np = np.array([r.vector for r in results])
-        base_payload = {
-            k: results[0].payload.get(k)
-            for k in ["data_type", "is_cropped", "is_segmented", "is_augmented", "class_name"]
-            if k in results[0].payload
+        # [3] 전처리 단계별 대표 벡터 생성
+        preprocessing_conditions = {
+            "pre_a": [
+                FieldCondition(key="is_cropped", match=MatchValue(value=True)),
+                FieldCondition(key="is_segmented", match=MatchValue(value=False)),
+                FieldCondition(key="is_augmented", match=MatchValue(value=False)),
+            ],
+            "pre_b": [
+                FieldCondition(key="is_segmented", match=MatchValue(value=True)),
+                FieldCondition(key="is_augmented", match=MatchValue(value=False)),
+            ],
+            "pre_c": [
+                FieldCondition(key="is_augmented", match=MatchValue(value=True)),
+            ]
         }
 
-        print(f"\n📦 총 {len(vectors_np)}개의 벡터 로드 완료")
+        for pre_key, conditions in preprocessing_conditions.items():
+            print(f"\n--- [작업] '{class_name}' 클래스의 '{pre_key}' 대표 벡터 생성 ---")
+            
+            # 해당 조건의 벡터 불러오기
+            results, _ = client.scroll(
+                collection_name=collection_name,
+                scroll_filter=Filter(must=[
+                    FieldCondition(key="class_name", match=MatchValue(value=class_name)),
+                    FieldCondition(key="is_delegate", match=MatchValue(value=False)),
+                    *conditions
+                ]),
+                with_vectors=True, with_payload=True, limit=10000
+            )
 
-        print("→ 평균 벡터 저장 중...")
-        save_delegate_vector(client, collection_name, base_payload, compute_average(vectors_np), "average")
+            if not results:
+                print(f"  -> ❌ '{pre_key}' 조건에 해당하는 벡터가 없습니다. 건너뜁니다.")
+                continue
 
-        print("→ 중심 벡터 저장 중...")
-        save_delegate_vector(client, collection_name, base_payload, compute_centroid(vectors_np), "centroid")
+            vectors_np = np.array([r.vector for r in results])
+            base_payload = {
+                k: results[0].payload.get(k)
+                for k in ["data_type", "is_cropped", "is_segmented", "is_augmented", "class_name"]
+                if k in results[0].payload
+            }
 
-        print("→ 가중 평균 벡터 저장 중...")
-        save_delegate_vector(client, collection_name, base_payload, compute_weighted_average(vectors_np), "weighted")
+            print(f"  -> 📦 총 {len(vectors_np)}개의 벡터 로드 완료")
 
-        print("→ Medoid 벡터 저장 중...")
-        save_delegate_vector(client, collection_name, base_payload, compute_medoid(vectors_np), "medoid")
+            print("  -> 평균 벡터 저장 중...")
+            save_delegate_vector(client, collection_name, base_payload, compute_average(vectors_np), "average")
 
-        print("\n✅ 대표 벡터 저장 완료!")
+            print("  -> 중심 벡터 저장 중...")
+            save_delegate_vector(client, collection_name, base_payload, compute_centroid(vectors_np), "centroid")
+
+            print("  -> 가중 평균 벡터 저장 중...")
+            save_delegate_vector(client, collection_name, base_payload, compute_weighted_average(vectors_np), "weighted")
+
+            print("  -> Medoid 벡터 저장 중...")
+            save_delegate_vector(client, collection_name, base_payload, compute_medoid(vectors_np), "medoid")
+
+            print("  -> ✅ 대표 벡터 저장 완료!")
 
         cont = input("\n➕ 다른 클래스 또는 collection에 대해 작업할까요? (y/n): ").strip().lower()
         if cont != "y":
