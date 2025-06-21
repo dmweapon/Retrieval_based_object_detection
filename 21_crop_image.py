@@ -10,25 +10,51 @@ margin_ratio = 0.2
 processed_count = 0  # ✅ 처리된 객체 이미지 수
 
 # 1. 이미지 유형 입력
-img_type = input("original 이미지를 작업할까요? natural 이미지를 작업할까요?: ").strip().lower()
-while img_type not in ["original", "natural"]:
-    img_type = input("잘못된 입력입니다. original 또는 natural 중 선택해주세요: ").strip().lower()
+print("어떤 유형의 이미지를 크롭하시겠습니까?")
+print("1) original")
+print("2) natural")
+choice = input("번호를 선택해주세요 (1 또는 2): ").strip()
+
+img_type_map = {'1': 'original', '2': 'natural'}
+img_type = img_type_map.get(choice)
+
+while img_type is None:
+    choice = input("잘못된 입력입니다. 1 또는 2 중에서 선택해주세요: ").strip()
+    img_type = img_type_map.get(choice)
 
 target_subdir = f"{img_type}_images"
 img_root_dir = origin_dataset_dir / target_subdir
 
 # 2. 전체 디렉토리 작업 여부 입력
-all_dirs = input("모든 하위 디렉토리를 작업할까요? (y 또는 n): ").strip().lower()
+all_class_dirs = sorted([d for d in img_root_dir.iterdir() if d.is_dir() and not d.name.startswith('.')])
+class_dirs = []
 
-if all_dirs == "y":
-    class_dirs = sorted([d for d in img_root_dir.iterdir() if d.is_dir()])
+all_dirs_choice = input("\n모든 하위 디렉토리를 작업할까요? (y 또는 n): ").strip().lower()
+
+if all_dirs_choice == "y":
+    class_dirs = all_class_dirs
+    print(f"\n✅ 모든 {len(class_dirs)}개 클래스에 대해 크롭 작업을 시작합니다.")
+elif all_dirs_choice == 'n':
+    print("\n📄 작업할 클래스를 선택하세요:")
+    for idx, dir_path in enumerate(all_class_dirs):
+        print(f"  {idx + 1}: {dir_path.name}")
+        
+    while True:
+        try:
+            choice_str = input("클래스 번호를 입력하세요: ").strip()
+            choice_idx = int(choice_str) - 1
+            if 0 <= choice_idx < len(all_class_dirs):
+                selected_dir = all_class_dirs[choice_idx]
+                class_dirs.append(selected_dir)
+                print(f"\n✅ '{selected_dir.name}' 클래스에 대해서만 크롭 작업을 시작합니다.")
+                break
+            else:
+                print(f"❌ 잘못된 번호입니다. 1에서 {len(all_class_dirs)} 사이의 숫자를 입력해주세요.")
+        except ValueError:
+            print("❌ 숫자를 입력해주세요.")
 else:
-    class_name = input("작업할 클래스 이름을 입력하세요: ").strip()
-    class_dir = img_root_dir / class_name
-    if not class_dir.exists():
-        print(f"[에러] 클래스 디렉토리 '{class_dir}'가 존재하지 않습니다.")
-        sys.exit(1)
-    class_dirs = [class_dir]
+    print("❌ 유효하지 않은 입력입니다. 'y' 또는 'n'을 입력해주세요.")
+    sys.exit(1)
 
 # 바운딩 박스 + margin 크롭 함수
 def crop_with_label(image_path, label_path, save_dir):

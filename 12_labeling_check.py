@@ -7,13 +7,52 @@ from ultralytics import YOLO
 # =============== 설정 ===============
 root_dataset_dir = Path("./dataset_jpeg")
 
-input_choice = input("라벨링 검수할 디렉토리 선택(original / natural): ").strip().lower()
-if input_choice == "original":
+print("라벨링을 검수할 이미지 유형을 선택하세요.")
+print("1) original")
+print("2) natural")
+input_choice_num = input("번호를 선택해주세요 (1 또는 2): ").strip()
+
+if input_choice_num == "1":
     selected_dir = root_dataset_dir / "original_images"
-elif input_choice == "natural":
+elif input_choice_num == "2":
     selected_dir = root_dataset_dir / "natural_images"
 else:
-    raise ValueError("잘못된 입력입니다. 'original' 또는 'natural'만 입력 가능합니다.")
+    print("❌ 잘못된 입력입니다. '1' 또는 '2'만 입력 가능합니다.")
+    exit(1)
+
+# 검수할 클래스 선택
+all_class_dirs = sorted([d for d in selected_dir.iterdir() if d.is_dir() and not d.name.startswith('.')], key=lambda p: p.name)
+if not all_class_dirs:
+    print(f"❌ 클래스 디렉토리를 찾을 수 없습니다: {selected_dir}")
+    exit(1)
+
+dirs_to_check = []
+check_all_choice = input("\n모든 클래스를 검수하시겠습니까? (y/n): ").strip().lower()
+
+if check_all_choice == 'y':
+    dirs_to_check = all_class_dirs
+    print(f"\n✅ 모든 {len(all_class_dirs)}개 클래스에 대해 검수를 시작합니다.")
+elif check_all_choice == 'n':
+    print("\n📄 검수할 클래스를 선택하세요:")
+    for idx, dir_path in enumerate(all_class_dirs):
+        print(f"  {idx + 1}: {dir_path.name}")
+    
+    while True:
+        try:
+            choice_str = input("클래스 번호를 입력하세요: ").strip()
+            choice_idx = int(choice_str) - 1
+            if 0 <= choice_idx < len(all_class_dirs):
+                selected_dir_to_check = all_class_dirs[choice_idx]
+                dirs_to_check.append(selected_dir_to_check)
+                print(f"\n✅ '{selected_dir_to_check.name}' 클래스에 대해서만 검수를 시작합니다.")
+                break
+            else:
+                print(f"❌ 잘못된 번호입니다. 1에서 {len(all_class_dirs)} 사이의 숫자를 입력해주세요.")
+        except ValueError:
+            print("❌ 숫자를 입력해주세요.")
+else:
+    print("❌ 유효하지 않은 입력입니다. 'y' 또는 'n'을 입력해주세요.")
+    exit(1)
 
 dir_model = Path("./model/yolov8s.pt")
 # padding = 0.25
@@ -150,7 +189,10 @@ def move_to_manual(img_path: Path):
 def sort_key(p): return (p.parent.name, p.name)
 
 # 이미지 수집
-image_paths = sorted(list(selected_dir.rglob("*.jpg")), key=sort_key)
+image_paths = []
+for d in dirs_to_check:
+    image_paths.extend(list(d.glob("*.jpg")))
+image_paths = sorted(image_paths, key=sort_key)
 total_images = len(image_paths)
 
 # 진행 위치 복원

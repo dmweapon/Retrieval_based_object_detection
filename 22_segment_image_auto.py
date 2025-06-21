@@ -52,8 +52,20 @@ def main():
     input_root_default = "dataset_cropped"
     input_root = input(f"원본 이미지 Root (기본값: {input_root_default}): ") or input_root_default
     
-    img_type_default = "original_images"
-    img_type = input(f"이미지 타입 (기본값: {img_type_default}): ") or img_type_default
+    # 이미지 유형 선택 (original/natural 입력 허용)
+    print("이미지 타입을 선택하세요.")
+    print("1) original")
+    print("2) natural")
+    
+    img_type_choice = input("번호 선택 (기본값: 1): ") or "1"
+    img_type_map = {"1": "original", "2": "natural"}
+    img_type_base = img_type_map.get(img_type_choice)
+
+    while img_type_base is None:
+        img_type_choice = input("잘못된 입력입니다. 1 또는 2 중에서 선택해주세요: ")
+        img_type_base = img_type_map.get(img_type_choice)
+        
+    img_type = f"{img_type_base}_images"
 
     source_base_dir = Path(input_root) / img_type
     if not source_base_dir.exists():

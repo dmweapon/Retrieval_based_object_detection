@@ -10,14 +10,62 @@ dir_dataset_jpeg = Path("./dataset_jpeg")  # JPEG 이미지가 저장된 디렉�
 dir_model = Path("./model/yolov8s.pt")     # YOLOv8s 모델 경로 (.pt 파일)
 
 # 이미지 유형 선택
-image_type = input("어떤 이미지를 라벨링할까요? (original 또는 natural): ").strip().lower()
-while image_type not in ['original', 'natural']:
-    image_type = input("잘못된 입력입니다. original 또는 natural 중 선택해주세요: ").strip().lower()
+print("어떤 유형의 이미지를 라벨링할까요?")
+print("1) original")
+print("2) natural")
+
+choice = input("번호를 선택해주세요 (1 또는 2): ").strip()
+image_type_map = {'1': 'original', '2': 'natural'}
+image_type = image_type_map.get(choice)
+
+while image_type is None:
+    choice = input("잘못된 입력입니다. 1 또는 2 중에서 선택해주세요: ").strip()
+    image_type = image_type_map.get(choice)
 
 dir_dataset_sampled = dir_dataset_jpeg / f"{image_type}_images"
 
+# 클래스 디렉토리 수집 (숨김 디렉토리 제외)
+all_class_dirs = [d for d in dir_dataset_sampled.iterdir() if d.is_dir() and not d.name.startswith('.')]
+if not all_class_dirs:
+    print(f"❌ 디렉토리 없음: {dir_dataset_sampled} 하위에 클래스 디렉토리를 찾을 수 없습니다.")
+    exit(1)
+
+# 라벨링할 클래스 선택
+class_dirs_to_process = []
+label_all_choice = input("\n모든 클래스를 라벨링하시겠습니까? (y/n): ").strip().lower()
+
+if label_all_choice == 'y':
+    class_dirs_to_process = all_class_dirs
+    print(f"\n✅ 모든 {len(all_class_dirs)}개 클래스에 대해 라벨링을 시작합니다.")
+elif label_all_choice == 'n':
+    all_class_names_for_selection = sorted([d.name for d in all_class_dirs])
+    print("\n📄 클래스 이름 목록:")
+    for idx, name in enumerate(all_class_names_for_selection):
+        print(f"  {idx + 1}: {name}")
+
+    while True:
+        try:
+            choice_str = input("라벨링할 클래스의 번호를 입력하세요: ").strip()
+            choice_idx = int(choice_str) - 1
+            if 0 <= choice_idx < len(all_class_names_for_selection):
+                selected_class_name = all_class_names_for_selection[choice_idx]
+                selected_dir = next(d for d in all_class_dirs if d.name == selected_class_name)
+                class_dirs_to_process.append(selected_dir)
+                print(f"\n✅ '{selected_class_name}' 클래스에 대해서만 라벨링을 시작합니다.")
+                break
+            else:
+                print(f"❌ 잘못된 번호입니다. 1에서 {len(all_class_names_for_selection)} 사이의 숫자를 입력해주세요.")
+        except ValueError:
+            print("❌ 숫자를 입력해주세요.")
+        except StopIteration:
+            print("❌ 내부 오류: 선택한 클래스 디렉토리를 찾을 수 없습니다.")
+            exit(1)
+else:
+    print("❌ 유효하지 않은 입력입니다. 'y' 또는 'n'을 입력해주세요.")
+    exit(1)
+
 # 각 클래스 디렉토리에 classes.txt 생성 여부
-create_class_txt_in_each_dir = input("각 클래스 디렉토리에 classes.txt 파일을 생성할까요? (y/n): ").strip().lower()
+create_class_txt_in_each_dir = input("\n각 클래스 디렉토리에 classes.txt 파일을 생성할까요? (y/n): ").strip().lower()
 if create_class_txt_in_each_dir not in ["y", "n"]:
     print("❌ 유효하지 않은 입력입니다. 'y' 또는 'n'을 입력해주세요.")
     exit(1)
@@ -53,39 +101,27 @@ except Exception as e:
     print(f"❌ 모델 로드 실패: {e}")
     exit(1)
 
-# 클래스 디렉토리 수집 (숨김 디렉토리 제외)
-class_dirs = [d for d in dir_dataset_sampled.iterdir() if d.is_dir() and not d.name.startswith('.')]
-if not class_dirs:
-    print(f"❌ 디렉토리 없음: {dir_dataset_sampled} 하위에 클래스 디렉토리를 찾을 수 없습니다.")
-    exit(1)
+# 클래스 이름 정렬 및 ID 매핑 (전체 클래스 기준)
+all_class_names = sorted([d.name for d in all_class_dirs])
+class_name_to_id = {name: idx for idx, name in enumerate(all_class_names)}
 
-# 클래스 이름 정렬 및 ID 매핑
-class_names = sorted([d.name for d in class_dirs])
-class_name_to_id = {name: idx for idx, name in enumerate(class_names)}
-
-print(f"\n✅ 클래스 디렉토리 수: {len(class_names)}")
-print("📄 클래스 이름 목록:")
-for idx, name in enumerate(class_names):
-    print(f"  {idx}: {name}")
-
-# classes.txt 저장
+# classes.txt 저장 (전체 클래스 기준)
 classes_txt_path = dir_dataset_sampled / "classes.txt"
 try:
     with open(classes_txt_path, "w") as f:
-        for name in class_names:
+        for name in all_class_names:
             f.write(f"{name}\n")
-    print(f"📄 classes.txt 생성 완료: {classes_txt_path}")
+    print(f"\n📄 classes.txt 생성 완료: {classes_txt_path}")
 except Exception as e:
     print(f"❌ classes.txt 저장 실패: {e}")
     exit(1)
 
 # classes.txt 복사
 if create_class_txt_in_each_dir:
-    for class_dir in class_dirs:
+    for class_dir in all_class_dirs:
         dst = class_dir / "classes.txt"
         try:
             shutil.copy(classes_txt_path, dst)
-            print(f"📄 클래스 디렉토리에 복사 완료: {dst}")
         except Exception as e:
             print(f"❌ 복사 실패: {dst}, 오류: {e}")
 
@@ -98,7 +134,7 @@ skipped_no_object = 0
 failed_images = 0
 not_detected_images = []
 
-for class_dir in class_dirs:
+for class_dir in class_dirs_to_process:
     class_name = class_dir.name
     class_id = class_name_to_id[class_name]
 
